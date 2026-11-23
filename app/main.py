@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.background import BackgroundTask
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, HttpUrl
 import yt_dlp
 
