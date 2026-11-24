@@ -6,11 +6,14 @@ import re
 import shutil
 import subprocess
 import tempfile
-import threading
 from contextlib import contextmanager
-import uuid
 from pathlib import Path
 from urllib.parse import urlparse
+
+from .checksums import calculate_file_hashes
+from .runtime import (
+    DOWNLOAD_ROOT, DOWNLOAD_LOCK, cleanup_job_dir, cleanup_stale_jobs, create_job_dir,
+)
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
@@ -23,10 +26,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("social-video-downloader")
 
 APP_DIR = Path(__file__).parent
-DOWNLOAD_ROOT = Path(tempfile.gettempdir()) / "social-video-downloader"
-DOWNLOAD_ROOT.mkdir(parents=True, exist_ok=True)
-# The free Render instance has only 512 MiB RAM; never run two FFmpeg jobs at once.
-DOWNLOAD_LOCK = threading.Lock()
 
 ALLOWED_HOSTS = {
     "tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com",
@@ -38,6 +37,12 @@ MAX_FILE_MB = int(os.getenv("MAX_FILE_MB", "1024"))
 
 app = FastAPI(title="Social Video Downloader", version="1.3.0")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
+
+
+@app.on_event("startup")
+def remove_abandoned_job_files():
+    """Clean temporary workspaces left behind by a previous process restart."""
+    cleanup_stale_jobs()
 
 
 class ResolveRequest(BaseModel):
@@ -298,9 +303,9 @@ def download(req: DownloadRequest):
                 f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
             )
 
-    job_dir = DOWNLOAD_ROOT / uuid.uuid4().hex
+    job_dir = None
     try:
-        job_dir.mkdir(parents=True, exist_ok=True)
+        job_dir = create_job_dir()
         with temporary_instagram_cookies(job_dir) as cookiefile:
             opts = ydl_options(cookiefile if is_instagram else None)
             opts.update({
@@ -394,19 +399,40 @@ def download(req: DownloadRequest):
                         "video/webm" if path.suffix.lower() == ".webm" else
                         "video/quicktime" if path.suffix.lower() == ".mov" else
                         "application/octet-stream"),
-            background=BackgroundTask(shutil.rmtree, job_dir, ignore_errors=True),
+            background=BackgroundTask(cleanup_job_dir, job_dir),
         )
         DOWNLOAD_LOCK.release()
         return response
     except HTTPException:
-        shutil.rmtree(job_dir, ignore_errors=True)
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
         DOWNLOAD_LOCK.release()
         raise
     except Exception:
-        logger.exception("download job %s: unhandled download pipeline failure", job_dir.name)
-        shutil.rmtree(job_dir, ignore_errors=True)
+        logger.exception("download job %s: unhandled download pipeline failure", job_dir.name if job_dir else "unallocated")
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
         DOWNLOAD_LOCK.release()
         raise HTTPException(422, "下载失败：服务器处理媒体文件时发生错误，详细原因已记录。")
+
+
+@app.post("/api/editor/checksum")
+def editor_checksum(video: UploadFile = File(...)):
+    """Calculate integrity hashes for an uploaded file; never modify or re-encode it."""
+    filename = Path(video.filename or "video").name
+    try:
+        result = calculate_file_hashes(video.file)
+        return {
+            "filename": filename,
+            **result,
+            "note": "仅计算文件完整性哈希；未修改文件内容、视频画面、音频或 HDR。",
+        }
+    except ValueError as exc:
+        if "大小限制" in str(exc):
+            raise HTTPException(413, "单个文件最大支持 300 MB。")
+        raise HTTPException(400, "请选择有效的视频文件。")
+    finally:
+        video.file.close()
 
 
 @app.post("/api/editor/metadata")
@@ -432,9 +458,9 @@ def editor_metadata(
         raise HTTPException(400, "元数据写入目前支持 MP4、MOV、M4V。")
     if not DOWNLOAD_LOCK.acquire(timeout=1):
         raise HTTPException(503, "服务器正在处理另一个视频任务，请稍后再试。")
-    job_dir = DOWNLOAD_ROOT / ("metadata-" + uuid.uuid4().hex)
+    job_dir = None
     try:
-        job_dir.mkdir(parents=True, exist_ok=True)
+        job_dir = create_job_dir("metadata-")
         input_path = job_dir / ("source" + suffix)
         size = 0
         with input_path.open("wb") as dst:
@@ -463,7 +489,7 @@ def editor_metadata(
         ]
         command = [
             "ffmpeg", "-y", "-i", str(input_path), "-map", "0", "-map_metadata", "0",
-            "-c", "copy", "-metadata", f"artist={personal_name.strip()}",
+            "-c", "copy",
             "-metadata", f"comment={'；'.join(attribution)}",
             "-metadata", f"description={'；'.join(attribution)}",
             "-movflags", "+faststart", "-f", "mp4", str(output),
@@ -476,18 +502,21 @@ def editor_metadata(
             raise HTTPException(422, "元数据写入没有生成有效文件。")
         return FileResponse(
             output, filename="VideoDrop-Metadata.mp4", media_type="video/mp4",
-            background=BackgroundTask(shutil.rmtree, job_dir, ignore_errors=True),
+            background=BackgroundTask(cleanup_job_dir, job_dir),
         )
     except subprocess.CalledProcessError as exc:
         logger.error("metadata job %s: ffmpeg failed stderr=%s", job_dir.name, (exc.stderr or "")[-3000:])
-        shutil.rmtree(job_dir, ignore_errors=True)
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
         raise HTTPException(422, "元数据写入失败；原始编码或容器可能不兼容。原文件未被修改。")
     except HTTPException:
-        shutil.rmtree(job_dir, ignore_errors=True)
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
         raise
     except Exception:
-        logger.exception("metadata job %s: unexpected failure", job_dir.name)
-        shutil.rmtree(job_dir, ignore_errors=True)
+        logger.exception("metadata job %s: unexpected failure", job_dir.name if job_dir else "unallocated")
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
         raise HTTPException(422, "元数据处理失败，原文件未被修改。")
     finally:
         DOWNLOAD_LOCK.release()
@@ -521,9 +550,9 @@ def editor_export(
     if not DOWNLOAD_LOCK.acquire(timeout=1):
         raise HTTPException(503, "服务器正在处理另一个视频任务，请稍后再试。")
 
-    job_dir = DOWNLOAD_ROOT / ("edit-" + uuid.uuid4().hex)
+    job_dir = None
     try:
-        job_dir.mkdir(parents=True, exist_ok=True)
+        job_dir = create_job_dir("edit-")
         input_path = job_dir / "source" / ("input" + Path(video.filename).suffix.lower())
         input_path.parent.mkdir(parents=True, exist_ok=True)
         video_size = 0
@@ -629,14 +658,16 @@ def editor_export(
             output,
             filename="VideoDrop-Edited.mp4",
             media_type="video/mp4",
-            background=BackgroundTask(shutil.rmtree, job_dir, ignore_errors=True),
+            background=BackgroundTask(cleanup_job_dir, job_dir),
         )
     except HTTPException:
-        shutil.rmtree(job_dir, ignore_errors=True)
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
         raise
     except Exception:
-        logger.exception("editor job %s: unexpected failure", job_dir.name)
-        shutil.rmtree(job_dir, ignore_errors=True)
+        logger.exception("editor job %s: unexpected failure", job_dir.name if job_dir else "unallocated")
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
         raise HTTPException(422, "剪辑处理失败，详细原因已记录。")
     finally:
         DOWNLOAD_LOCK.release()

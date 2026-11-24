@@ -27,6 +27,15 @@
 <button class="primary" id="save_script" type="button">保存评论稿到手机（TXT） ↓</button>
 <p class="muted">来源署名不等于授权。没有授权时，请把原视频作为研究参考，不要直接将整条视频作为成片主体。</p>
 </section>
+<section class="editor-card" id="checksum-tool">
+<h2>视频文件完整性校验</h2>
+<p>计算所选文件的 MD5 和 SHA-256，用于核对文件是否完整、是否与另一份文件完全一致。此功能不会修改视频内容或画面，也不会改变平台对视频内容的识别。</p>
+<form id="checksum_form">
+<div class="field"><label for="checksum_video">选择视频文件（最大 300 MB）</label><input id="checksum_video" name="video" type="file" accept="video/*,.mp4,.mov,.m4v,.webm,.mkv" required></div>
+<button class="primary" type="submit" id="checksum_button">计算文件校验值 ↓</button>
+</form>
+<div id="checksum_result" class="notice" hidden aria-live="polite"></div>
+</section>
 <section class="editor-card" id="metadata-editor">
 <h2>视频版权与创作信息（不重新编码）</h2>
 <p>将你的个人名称记录为剪辑者/解说者，并保留原作者、原版权人及来源信息。此功能只修改 MP4 容器元数据，不改变视频流编码，也不转移版权。</p>

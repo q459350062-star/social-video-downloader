@@ -2,6 +2,39 @@
  const file=document.getElementById("video");
  const preview=document.getElementById("preview");
  const form=document.querySelector('form[action="/api/editor/export"]');
+ const checksumForm=document.getElementById("checksum_form");
+ const checksumButton=document.getElementById("checksum_button");
+ const checksumResult=document.getElementById("checksum_result");
+ checksumForm.addEventListener("submit",async(event)=>{
+   event.preventDefault();
+   const selected=document.getElementById("checksum_video").files[0];
+   if(!selected){alert("请先选择视频文件。");return;}
+   if(selected.size>300*1024*1024){alert("单个文件最大支持 300 MB。");return;}
+   const data=new FormData();
+   data.append("video",selected);
+   checksumButton.disabled=true;
+   checksumButton.textContent="正在计算，请保持页面打开…";
+   checksumResult.hidden=false;
+   checksumResult.textContent="正在计算文件校验值…";
+   try{
+     const response=await fetch("/api/editor/checksum",{method:"POST",body:data});
+     const result=await response.json();
+     if(!response.ok) throw new Error(result.detail||"计算失败，请稍后重试。");
+     checksumResult.textContent=[
+       "文件："+result.filename,
+       "大小："+result.size_bytes.toLocaleString()+" bytes",
+       "MD5："+result.md5,
+       "SHA-256："+result.sha256,
+       result.note
+     ].join("\n");
+     checksumResult.style.whiteSpace="pre-wrap";
+   }catch(error){
+     checksumResult.textContent=error.message||"计算失败，请稍后重试。";
+   }finally{
+     checksumButton.disabled=false;
+     checksumButton.textContent="计算文件校验值 ↓";
+   }
+ });
  const metadataForm=document.getElementById("metadata_form");
  const metadataButton=document.getElementById("metadata_button");
  const rights=document.getElementById("rights_confirm");
