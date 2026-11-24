@@ -162,8 +162,10 @@ def download(req: DownloadRequest):
     url = validate_url(str(req.url))
     if req.quality != "best" and not re.fullmatch(r"height:[0-9]{1,5}", req.quality):
         raise HTTPException(400, "画质选项无效，请重新解析。")
-    if not DOWNLOAD_LOCK.acquire(blocking=False):
-        raise HTTPException(429, "服务器正在转换上一条视频，请稍候，不要重复点击下载。")
+    # Queue a second request instead of returning a JSON 429 file to mobile Safari.
+    # The free instance runs one worker; wait for the active conversion to release the lock.
+    if not DOWNLOAD_LOCK.acquire(timeout=1800):
+        raise HTTPException(503, "服务器繁忙，等待转换超时。请返回页面后再试。")
 
     # Prefer H.264 + AAC for broad iPhone/iOS playback compatibility.
     # If the source only offers VP9/AV1, the post-download step transcodes it.
