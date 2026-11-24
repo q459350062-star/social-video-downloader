@@ -252,12 +252,12 @@ def download(req: DownloadRequest):
         with temporary_instagram_cookies(job_dir) as cookiefile:
             opts = ydl_options(cookiefile if is_instagram else None)
             opts.update({
-            "format": selector,
-            # Prefer HDR formats before resolution/codec when the extractor exposes dynamic_range.
-            "format_sort": ["hdr", "res", "fps", "vcodec"],
-            "format_sort_force": True,
-            "outtmpl": str(job_dir / "%(title).80s-%(id)s.%(ext)s"),
-            "max_filesize": MAX_FILE_MB * 1024 * 1024,
+                "format": selector,
+                # Prefer HDR formats before resolution/codec when the extractor exposes dynamic_range.
+                "format_sort": ["hdr", "res", "fps", "vcodec"],
+                "format_sort_force": True,
+                "outtmpl": str(job_dir / "%(title).80s-%(id)s.%(ext)s"),
+                "max_filesize": MAX_FILE_MB * 1024 * 1024,
                 "overwrites": True,
             })
             logger.info(
