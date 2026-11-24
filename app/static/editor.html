@@ -7,7 +7,7 @@
 <title>VideoDrop 手机剪辑工作台</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
-.editor-hero{padding:34px 0 22px}.editor-card{margin-top:16px;background:rgba(25,30,41,.96);border:1px solid var(--line);border-radius:20px;padding:18px}.editor-card h2{font-size:17px;margin:0 0 8px}.editor-card p,.muted{color:var(--muted);font-size:12px;line-height:1.65}.field{margin:16px 0}.field input[type=file]{padding:12px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}.preview{width:100%;max-height:360px;background:#07090d;border-radius:14px;margin-top:12px}.check{display:flex;align-items:center;gap:9px;color:#cbd2df;font-size:13px}.check input{width:auto}.back{display:inline-block;color:var(--accent);text-decoration:none;font-size:13px;margin-top:18px}.notice{border:1px solid #59613e;background:#252b20;padding:12px;border-radius:12px;color:#d6e6b7;font-size:12px;line-height:1.6}@media(max-width:420px){.pair{grid-template-columns:1fr 1fr}.editor-card{padding:15px}}
+.editor-hero{padding:34px 0 22px}.editor-card{margin-top:16px;background:rgba(25,30,41,.96);border:1px solid var(--line);border-radius:20px;padding:18px}.editor-card h2{font-size:17px;margin:0 0 8px}.editor-card p,.muted{color:var(--muted);font-size:12px;line-height:1.65}.field{margin:16px 0}.field input[type=file]{padding:12px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}.preview{width:100%;max-height:360px;background:#07090d;border-radius:14px;margin-top:12px}.check{display:flex;align-items:center;gap:9px;color:#cbd2df;font-size:13px}.check input{width:auto}.back{display:inline-block;color:var(--accent);text-decoration:none;font-size:13px;margin-top:18px}.notice{border:1px solid #59613e;background:#252b20;padding:12px;border-radius:12px;color:#d6e6b7;font-size:12px;line-height:1.6}textarea{min-width:0;width:100%;background:#10141d;border:1px solid #343d4e;color:var(--text);border-radius:12px;padding:14px;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;resize:vertical}.notice{border:1px solid #8a6b36;background:#302719;padding:12px;border-radius:12px;color:#f0d8a8;font-size:12px;line-height:1.6}@media(max-width:420px){.pair{grid-template-columns:1fr 1fr}.editor-card{padding:15px}}
 </style>
 </head>
 <body>
@@ -18,6 +18,15 @@
 <h1>把素材，<span>剪成作品。</span></h1>
 <p>手机浏览器直接剪辑单条视频：截取片段、添加自己的配音、加入可开关字幕轨道。</p>
 </section>
+<section class="editor-card" id="commentary-planner">
+<h2>先做原创评论稿（不需要上传他人视频）</h2>
+<p>你目前没有原作者授权。可以先记录来源、写自己的分析和解说稿；此功能只在手机本地生成文稿，不会把他人视频包装成你的原创作品。</p>
+<div class="field"><label for="source_url">原视频链接</label><input id="source_url" type="url" placeholder="粘贴 Instagram 原帖链接"></div>
+<div class="field"><label for="source_creator">原作者账号（知道的话填写）</label><input id="source_creator" type="text" placeholder="@作者账号"></div>
+<div class="field"><label for="commentary_script">你的原创解说与评论稿</label><textarea id="commentary_script" rows="8" placeholder="按自己的观点写：\n1. 我想讨论的核心问题\n2. 视频中值得引用的具体细节\n3. 我的分析、证据或不同观点\n4. 我的结论"></textarea></div>
+<button class="primary" id="save_script" type="button">保存评论稿到手机（TXT） ↓</button>
+<p class="muted">来源署名不等于授权。没有授权时，请把原视频作为研究参考，不要直接将整条视频作为成片主体。</p>
+</section>
 <form class="editor-card" action="/api/editor/export" method="post" enctype="multipart/form-data">
 <div class="field"><label for="video">① 选择视频素材（最大 300 MB，最长 10 分钟）</label><input id="video" name="video" type="file" accept="video/mp4,video/quicktime,video/x-m4v,video/webm,.mkv" required><video id="preview" class="preview" controls playsinline hidden></video></div>
 <div class="field"><label>② 截取范围（秒）</label><div class="pair"><div><label for="trim_start">从第几秒开始</label><input id="trim_start" name="trim_start" type="number" min="0" max="3600" step="0.1" value="0"></div><div><label for="trim_end">从结尾裁掉几秒</label><input id="trim_end" name="trim_end" type="number" min="0" max="3600" step="0.1" value="0"></div></div></div>
@@ -25,8 +34,12 @@
 <div class="field"><label for="subtitles">④ 添加字幕文件（可选，SRT 格式，作为可开关字幕轨道）</label><input id="subtitles" name="subtitles" type="file" accept=".srt,application/x-subrip"></div>
 <div class="field"><label class="check"><input type="checkbox" name="keep_original_audio" value="true" checked> 没有上传配音时，保留视频原声音</label></div>
 <div class="notice">画质说明：系统会检测输入视频的 HDR 标记。HDR 素材使用 HEVC 10-bit 编码路径，SDR 素材使用 H.264。剪辑导出需要重新编码，不能保证与原文件逐帧无损或在所有设备上保持完全相同的 HDR 显示效果。原始文件请另行保留。</div>
-<button class="primary" type="submit">开始剪辑并导出 MP4 <span>↓</span></button>
+<button class="primary" id="export_button" type="submit">开始剪辑并导出 MP4 <span>↓</span></button>
 <p class="muted">免费实例一次只处理一个任务。请保持页面打开，导出时间取决于视频长度和分辨率。素材只用于本次处理，完成下载后服务器会清理临时文件。</p>
+<div class="field">
+<label class="check"><input id="rights_confirm" type="checkbox"> 我确认这段待导出视频由我创作、已获得明确授权，或有其他适用的合法使用依据</label>
+<p class="muted">你目前选择的是“尚未获得原作者授权”。请先使用上方评论稿工作区；不要勾选不符合事实的声明。取得授权后，再使用下方剪辑导出功能。</p>
+</div>
 </form>
 <a class="back" href="/">← 返回三合一下载首页</a>
 <footer><p>仅处理你拥有版权或已获授权的素材。二次剪辑不会自动取得原素材版权，也不保证平台授予原创标识。</p></footer>
