@@ -408,6 +408,91 @@ def download(req: DownloadRequest):
         DOWNLOAD_LOCK.release()
         raise HTTPException(422, "下载失败：服务器处理媒体文件时发生错误，详细原因已记录。")
 
+
+@app.post("/api/editor/metadata")
+def editor_metadata(
+    video: UploadFile = File(...),
+    personal_name: str = Form(...),
+    personal_role: str = Form("剪辑者/解说者"),
+    source_creator: str = Form(""),
+    source_url: str = Form(""),
+    original_rightsholder: str = Form(""),
+):
+    """Write truthful attribution metadata without changing the underlying video streams."""
+    if not personal_name.strip() or len(personal_name.strip()) > 120:
+        raise HTTPException(400, "请填写有效的个人名称（最多 120 个字符）。")
+    if len(personal_role) > 80 or len(source_creator) > 200 or len(source_url) > 2048 or len(original_rightsholder) > 200:
+        raise HTTPException(400, "版权信息字段过长。")
+    if source_url.strip():
+        parsed = urlparse(source_url.strip())
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise HTTPException(400, "来源链接格式无效。")
+    suffix = Path(video.filename or "").suffix.lower()
+    if suffix not in {".mp4", ".mov", ".m4v"}:
+        raise HTTPException(400, "元数据写入目前支持 MP4、MOV、M4V。")
+    if not DOWNLOAD_LOCK.acquire(timeout=1):
+        raise HTTPException(503, "服务器正在处理另一个视频任务，请稍后再试。")
+    job_dir = DOWNLOAD_ROOT / ("metadata-" + uuid.uuid4().hex)
+    try:
+        job_dir.mkdir(parents=True, exist_ok=True)
+        input_path = job_dir / ("source" + suffix)
+        size = 0
+        with input_path.open("wb") as dst:
+            while True:
+                chunk = video.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > 300 * 1024 * 1024:
+                    raise HTTPException(413, "单个视频最大支持 300 MB。")
+                dst.write(chunk)
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(input_path)],
+            capture_output=True, text=True, timeout=30, check=True,
+        )
+        streams = json.loads(probe.stdout).get("streams", [])
+        if not any(item.get("codec_type") == "video" for item in streams):
+            raise HTTPException(422, "文件中没有可识别的视频轨道。")
+        output = job_dir / "VideoDrop-Metadata.mp4"
+        attribution = [
+            f"剪辑/解说：{personal_name.strip()}（{personal_role.strip() or '剪辑者/解说者'}）",
+            f"原作者：{source_creator.strip() or '未填写'}",
+            f"原版权人：{original_rightsholder.strip() or '未填写'}",
+            f"来源：{source_url.strip() or '未填写'}",
+            "说明：此元数据记录创作参与和来源，不代表版权转让或原作者授权。",
+        ]
+        command = [
+            "ffmpeg", "-y", "-i", str(input_path), "-map", "0", "-map_metadata", "0",
+            "-c", "copy", "-metadata", f"artist={personal_name.strip()}",
+            "-metadata", f"comment={'；'.join(attribution)}",
+            "-metadata", f"description={'；'.join(attribution)}",
+            "-movflags", "+faststart", "-f", "mp4", str(output),
+        ]
+        if original_rightsholder.strip():
+            pos = command.index("-movflags")
+            command[pos:pos] = ["-metadata", f"copyright={original_rightsholder.strip()}"]
+        subprocess.run(command, capture_output=True, text=True, timeout=1800, check=True)
+        if not output.exists() or output.stat().st_size == 0:
+            raise HTTPException(422, "元数据写入没有生成有效文件。")
+        return FileResponse(
+            output, filename="VideoDrop-Metadata.mp4", media_type="video/mp4",
+            background=BackgroundTask(shutil.rmtree, job_dir, ignore_errors=True),
+        )
+    except subprocess.CalledProcessError as exc:
+        logger.error("metadata job %s: ffmpeg failed stderr=%s", job_dir.name, (exc.stderr or "")[-3000:])
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise HTTPException(422, "元数据写入失败；原始编码或容器可能不兼容。原文件未被修改。")
+    except HTTPException:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
+    except Exception:
+        logger.exception("metadata job %s: unexpected failure", job_dir.name)
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise HTTPException(422, "元数据处理失败，原文件未被修改。")
+    finally:
+        DOWNLOAD_LOCK.release()
+
+
 @app.post("/api/editor/export")
 def editor_export(
     video: UploadFile = File(...),
