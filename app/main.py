@@ -506,7 +506,7 @@ def editor_export(
             command += ["-c:a", "aac", "-b:a", "192k"]
         if subtitle_path:
             # MP4 text subtitle track; keep it selectable instead of burning it into pixels.
-            command += ["-i", str(subtitle_path), "-map", "2:0", "-c:s", "mov_text"]
+            command += ["-map", "2:0", "-c:s", "mov_text"]
         command += ["-movflags", "+faststart", str(output)]
 
         logger.info("editor job %s: export start hdr_input=%s trim=%s..%s", job_dir.name, is_hdr, start, end)
