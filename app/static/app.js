@@ -26,7 +26,10 @@ $("download").onclick=()=>{
  if(!data)return;
  const quality=encodeURIComponent($("formats").value);
  const url=encodeURIComponent(currentUrl);
- status("正在准备 iPhone 兼容 MP4，浏览器将直接接收下载文件…");
+ const button=$("download");
+ button.disabled=true;
+ button.textContent="正在转换，请勿重复点击…";
+ status("服务器正在生成 iPhone 兼容 MP4。此过程可能需要 1–3 分钟，请保持页面打开，不要连续点击。完成后浏览器会自动开始下载。");
  // Native attachment response avoids buffering the whole video in a JS Blob.
  window.location.href=`/api/download-file?url=${url}&quality=${quality}`;
 };
