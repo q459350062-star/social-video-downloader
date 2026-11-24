@@ -1,5 +1,6 @@
 import json
 import importlib.metadata
+import hashlib
 import logging
 import os
 import re
@@ -413,6 +414,36 @@ def download(req: DownloadRequest):
             cleanup_job_dir(job_dir)
         DOWNLOAD_LOCK.release()
         raise HTTPException(422, "下载失败：服务器处理媒体文件时发生错误，详细原因已记录。")
+
+
+@app.post("/api/editor/checksum")
+def editor_checksum(video: UploadFile = File(...)):
+    """Calculate integrity hashes for an uploaded file; never modify or re-encode it."""
+    filename = Path(video.filename or "video").name
+    size = 0
+    md5 = hashlib.md5()
+    sha256 = hashlib.sha256()
+    try:
+        while True:
+            chunk = video.file.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > 300 * 1024 * 1024:
+                raise HTTPException(413, "单个文件最大支持 300 MB。")
+            md5.update(chunk)
+            sha256.update(chunk)
+        if size == 0:
+            raise HTTPException(400, "请选择有效的视频文件。")
+        return {
+            "filename": filename,
+            "size_bytes": size,
+            "md5": md5.hexdigest(),
+            "sha256": sha256.hexdigest(),
+            "note": "仅计算文件完整性哈希；未修改文件内容、视频画面、音频或 HDR。",
+        }
+    finally:
+        video.file.close()
 
 
 @app.post("/api/editor/metadata")
