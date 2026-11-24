@@ -69,13 +69,13 @@ def temporary_instagram_cookies(directory: Path):
         line for line in raw.splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
-    if not any(line.count("\\t") >= 6 for line in cookie_rows):
+    if not any(line.count("\t") >= 6 for line in cookie_rows):
         raise RuntimeError("INSTAGRAM_COOKIES must contain Netscape-format cookies.")
     fd, cookie_path = tempfile.mkstemp(prefix=".instagram-cookies-", suffix=".txt", dir=str(directory))
     try:
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as cookie_file:
-            cookie_file.write(raw + "\\n")
+            cookie_file.write(raw + "\n")
         yield cookie_path
     finally:
         try:
