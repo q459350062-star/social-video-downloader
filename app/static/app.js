@@ -19,7 +19,11 @@ $("resolve").onclick=async()=>{
   $("formats").innerHTML="";
   j.choices.forEach(f=>{const o=document.createElement("option");o.value=f.quality;o.textContent=f.label;$("formats").appendChild(o)});
   renderSource(j.source||{});
-  $("note").textContent=j.note; $("result").classList.remove("hidden"); status("解析成功。已列出最高画质及可用分辨率。 ");
+  $("note").textContent=j.note;
+  if(j.platform==="Instagram" && !(j.source||{}).hdr_available){
+   $("note").textContent += " 请注意：当前认证状态或源站返回结果不包含 HDR；不要把本次文件当作 HDR。";
+  }
+  $("result").classList.remove("hidden"); status("解析成功。已列出最高画质及可用分辨率。 ");
  }catch(e){status(e.message,true)}finally{$("resolve").disabled=false}
 };
 $("download").onclick=()=>{
