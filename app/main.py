@@ -170,7 +170,8 @@ def download(req: DownloadRequest):
     # Prefer H.264 + AAC for broad iPhone/iOS playback compatibility.
     # If the source only offers VP9/AV1, the post-download step transcodes it.
     if req.quality == "best":
-        selector = "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc1]/bestvideo+bestaudio/best"
+        # Do not force H.264 first: that can silently select an SDR rendition when Instagram also exposes HDR.
+        selector = "bestvideo+bestaudio/best"
     else:
         height = int(req.quality.split(":", 1)[1])
         selector = (
@@ -185,6 +186,9 @@ def download(req: DownloadRequest):
         opts = ydl_options()
         opts.update({
             "format": selector,
+            # Prefer HDR formats before resolution/codec when the extractor exposes dynamic_range.
+            "format_sort": ["hdr", "res", "fps", "vcodec"],
+            "format_sort_force": True,
             "outtmpl": str(job_dir / "%(title).80s-%(id)s.%(ext)s"),
             "max_filesize": MAX_FILE_MB * 1024 * 1024,
             "overwrites": True,
@@ -192,7 +196,7 @@ def download(req: DownloadRequest):
         logger.info("download job %s: starting yt-dlp", job_dir.name)
         with yt_dlp.YoutubeDL(opts) as downloader:
             info = downloader.extract_info(url, download=True)
-        logger.info("download job %s: yt-dlp completed", job_dir.name)
+        logger.info("download job %s: yt-dlp completed selected_format=%s dynamic_range=%s requested_formats=%s", job_dir.name, info.get("format_id"), info.get("dynamic_range"), [(f.get("format_id"), f.get("dynamic_range"), f.get("vcodec"), f.get("height")) for f in info.get("requested_formats", [])])
         if not info or info.get("is_live"):
             raise HTTPException(422, "无法下载该内容。")
         candidates = [p for p in job_dir.iterdir() if p.is_file() and not p.name.endswith((".part", ".ytdl"))]
