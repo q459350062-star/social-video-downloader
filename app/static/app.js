@@ -22,12 +22,11 @@ $("resolve").onclick=async()=>{
   $("note").textContent=j.note; $("result").classList.remove("hidden"); status("解析成功。已列出最高画质及可用分辨率。 ");
  }catch(e){status(e.message,true)}finally{$("resolve").disabled=false}
 };
-$("download").onclick=async()=>{
- if(!data)return; $("download").disabled=true; status("正在下载并按需合并音视频流，请保持页面打开…");
- try{
-  const r=await fetch("/api/download",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:currentUrl,quality:$("formats").value})});
-  if(!r.ok){let j={};try{j=await r.json()}catch{}throw new Error(j.detail||"下载失败")}
-  const blob=await r.blob(); const disposition=r.headers.get("Content-Disposition")||"";const match=disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);const filename=match?decodeURIComponent(match[1]||match[2]):"video";
-  const a=document.createElement("a");const obj=URL.createObjectURL(blob);a.href=obj;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(obj),30000);status("文件已准备，浏览器已开始下载。");
- }catch(e){status(e.message,true)}finally{$("download").disabled=false}
+$("download").onclick=()=>{
+ if(!data)return;
+ const quality=encodeURIComponent($("formats").value);
+ const url=encodeURIComponent(currentUrl);
+ status("正在准备 iPhone 兼容 MP4，浏览器将直接接收下载文件…");
+ // Native attachment response avoids buffering the whole video in a JS Blob.
+ window.location.href=`/api/download-file?url=${url}&quality=${quality}`;
 };
