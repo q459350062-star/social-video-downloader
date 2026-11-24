@@ -2,6 +2,8 @@
  const file=document.getElementById("video");
  const preview=document.getElementById("preview");
  const form=document.querySelector('form[action="/api/editor/export"]');
+ const metadataForm=document.getElementById("metadata_form");
+ const metadataButton=document.getElementById("metadata_button");
  const rights=document.getElementById("rights_confirm");
  const exportButton=document.getElementById("export_button");
  let objectUrl="";
@@ -51,5 +53,6 @@
    a.remove();
    setTimeout(()=>URL.revokeObjectURL(url),1000);
  });
+ metadataForm.addEventListener("submit",()=>{metadataButton.disabled=true;metadataButton.textContent="正在写入元数据，请保持页面打开…";});
  window.addEventListener("pagehide",()=>{if(objectUrl)URL.revokeObjectURL(objectUrl);});
 })();
