@@ -302,8 +302,9 @@ def download(req: DownloadRequest):
                 f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
             )
 
-    job_dir = create_job_dir()
+    job_dir = None
     try:
+        job_dir = create_job_dir()
         with temporary_instagram_cookies(job_dir) as cookiefile:
             opts = ydl_options(cookiefile if is_instagram else None)
             opts.update({
@@ -402,12 +403,14 @@ def download(req: DownloadRequest):
         DOWNLOAD_LOCK.release()
         return response
     except HTTPException:
-        cleanup_job_dir(job_dir)
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
         DOWNLOAD_LOCK.release()
         raise
     except Exception:
         logger.exception("download job %s: unhandled download pipeline failure", job_dir.name)
-        cleanup_job_dir(job_dir)
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
         DOWNLOAD_LOCK.release()
         raise HTTPException(422, "下载失败：服务器处理媒体文件时发生错误，详细原因已记录。")
 
@@ -435,8 +438,9 @@ def editor_metadata(
         raise HTTPException(400, "元数据写入目前支持 MP4、MOV、M4V。")
     if not DOWNLOAD_LOCK.acquire(timeout=1):
         raise HTTPException(503, "服务器正在处理另一个视频任务，请稍后再试。")
-    job_dir = create_job_dir("metadata-")
+    job_dir = None
     try:
+        job_dir = create_job_dir("metadata-")
         input_path = job_dir / ("source" + suffix)
         size = 0
         with input_path.open("wb") as dst:
@@ -482,14 +486,17 @@ def editor_metadata(
         )
     except subprocess.CalledProcessError as exc:
         logger.error("metadata job %s: ffmpeg failed stderr=%s", job_dir.name, (exc.stderr or "")[-3000:])
-        cleanup_job_dir(job_dir)
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
         raise HTTPException(422, "元数据写入失败；原始编码或容器可能不兼容。原文件未被修改。")
     except HTTPException:
-        cleanup_job_dir(job_dir)
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
         raise
     except Exception:
         logger.exception("metadata job %s: unexpected failure", job_dir.name)
-        cleanup_job_dir(job_dir)
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
         raise HTTPException(422, "元数据处理失败，原文件未被修改。")
     finally:
         DOWNLOAD_LOCK.release()
@@ -523,8 +530,9 @@ def editor_export(
     if not DOWNLOAD_LOCK.acquire(timeout=1):
         raise HTTPException(503, "服务器正在处理另一个视频任务，请稍后再试。")
 
-    job_dir = create_job_dir("edit-")
+    job_dir = None
     try:
+        job_dir = create_job_dir("edit-")
         input_path = job_dir / "source" / ("input" + Path(video.filename).suffix.lower())
         input_path.parent.mkdir(parents=True, exist_ok=True)
         video_size = 0
@@ -633,11 +641,13 @@ def editor_export(
             background=BackgroundTask(cleanup_job_dir, job_dir),
         )
     except HTTPException:
-        cleanup_job_dir(job_dir)
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
         raise
     except Exception:
         logger.exception("editor job %s: unexpected failure", job_dir.name)
-        cleanup_job_dir(job_dir)
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
         raise HTTPException(422, "剪辑处理失败，详细原因已记录。")
     finally:
         DOWNLOAD_LOCK.release()
