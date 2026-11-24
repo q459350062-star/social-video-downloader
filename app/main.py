@@ -47,6 +47,7 @@ class ResolveRequest(BaseModel):
 class DownloadRequest(BaseModel):
     url: HttpUrl
     quality: str
+    output_mode: str = "ios"
 
 
 def validate_url(raw: str) -> str:
@@ -223,6 +224,11 @@ def resolve(req: ResolveRequest):
             "thumbnail": info.get("thumbnail"),
             "duration": duration,
             "choices": choices,
+            "creator": info.get("uploader") or info.get("channel") or info.get("creator") or "源站未提供",
+            "creator_id": info.get("uploader_id") or info.get("channel_id") or "",
+            "source_url": info.get("webpage_url") or url,
+            "source_post_id": info.get("id") or "",
+            "source_date": info.get("upload_date") or "",
             "source": format_metadata(info),
             "note": (
                 "当前源站没有向服务器提供可识别的 HDR 视频流；本次只能下载 SDR，不能靠转码把 SDR 变成 HDR。"
@@ -240,9 +246,9 @@ def resolve(req: ResolveRequest):
 
 
 @app.get("/api/download-file")
-def download_file(url: HttpUrl, quality: str):
+def download_file(url: HttpUrl, quality: str, output_mode: str = "ios"):
     """Native browser download path; avoids buffering the whole video in JS Blob memory."""
-    return download(DownloadRequest(url=url, quality=quality))
+    return download(DownloadRequest(url=url, quality=quality, output_mode=output_mode))
 
 
 @app.post("/api/download")
@@ -250,6 +256,8 @@ def download(req: DownloadRequest):
     url = validate_url(str(req.url))
     if req.quality != "best" and not re.fullmatch(r"height:[0-9]{1,5}", req.quality):
         raise HTTPException(400, "画质选项无效，请重新解析。")
+    if req.output_mode not in ("ios", "source"):
+        raise HTTPException(400, "输出模式无效，请重新选择。")
     # Queue a second request instead of returning a JSON 429 file to mobile Safari.
     # The free instance runs one worker; wait for the active conversion to release the lock.
     if not DOWNLOAD_LOCK.acquire(timeout=1800):
@@ -337,7 +345,7 @@ def download(req: DownloadRequest):
         # and can strip HDR metadata; this is already a Photos-friendly iPhone format.
         native_hdr_hevc = is_hdr and video_codec in ("hevc", "h265") and audio_codec in ("aac", "")
         needs_compat = (video_codec != "h264" or audio_codec not in ("aac", "")) and not native_hdr_hevc
-        if needs_compat:
+        if needs_compat and req.output_mode == "ios":
             fixed_path = job_dir / f"{path.stem}-ios.mp4"
             if is_hdr:
                 video_encoder = "libx265"
@@ -371,7 +379,10 @@ def download(req: DownloadRequest):
         response = FileResponse(
             path,
             filename=path.name,
-            media_type="video/mp4" if path.suffix.lower() == ".mp4" else "application/octet-stream",
+            media_type=("video/mp4" if path.suffix.lower() == ".mp4" else
+                        "video/webm" if path.suffix.lower() == ".webm" else
+                        "video/quicktime" if path.suffix.lower() == ".mov" else
+                        "application/octet-stream"),
             background=BackgroundTask(shutil.rmtree, job_dir, ignore_errors=True),
         )
         DOWNLOAD_LOCK.release()
