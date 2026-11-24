@@ -1,6 +1,5 @@
 import json
 import importlib.metadata
-import hashlib
 import logging
 import os
 import re
