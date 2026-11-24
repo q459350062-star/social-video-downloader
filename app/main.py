@@ -1,4 +1,5 @@
 import json
+import importlib.metadata
 import logging
 import os
 import re
@@ -35,7 +36,7 @@ ALLOWED_HOSTS = {
 MAX_DURATION = int(os.getenv("MAX_DURATION_SECONDS", "3600"))
 MAX_FILE_MB = int(os.getenv("MAX_FILE_MB", "1024"))
 
-app = FastAPI(title="Social Video Downloader", version="1.1.0")
+app = FastAPI(title="Social Video Downloader", version="1.2.0")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 
 
@@ -138,12 +139,40 @@ def format_metadata(info: dict) -> dict:
         "max_fps": best.get("fps"),
         "video_codecs": codecs,
         "hdr": hdr_values,
+        "hdr_available": bool(hdr_values),
     }
 
 
 @app.get("/health")
 def health():
     return {"ok": True, "version": app.version}
+
+
+@app.get("/api/diagnostics")
+def diagnostics():
+    """Expose non-secret runtime checks; never return cookie contents or environment values."""
+    try:
+        plugin_version = importlib.metadata.version("yt-dlp-instagram-hdr")
+    except importlib.metadata.PackageNotFoundError:
+        plugin_version = None
+    memory_limit = None
+    for memory_file in (Path("/sys/fs/cgroup/memory.max"), Path("/sys/fs/cgroup/memory/memory.limit_in_bytes")):
+        try:
+            value = memory_file.read_text().strip()
+            if value != "max":
+                memory_limit = int(value)
+                break
+        except (OSError, ValueError):
+            continue
+    return {
+        "version": app.version,
+        "yt_dlp_version": yt_dlp.version.__version__,
+        "instagram_hdr_plugin_version": plugin_version,
+        "instagram_cookie_auth_configured": bool(os.getenv("INSTAGRAM_COOKIES", "").strip()),
+        "ffmpeg_available": bool(shutil.which("ffmpeg")),
+        "ffprobe_available": bool(shutil.which("ffprobe")),
+        "memory_limit_bytes": memory_limit,
+    }
 
 
 @app.get("/")
@@ -195,7 +224,11 @@ def resolve(req: ResolveRequest):
             "duration": duration,
             "choices": choices,
             "source": format_metadata(info),
-            "note": "优先使用平台实际提供的原始视频流；若画面和声音分开提供，会尝试合并。合并时不主动压缩或提升分辨率。HDR 是否保留取决于平台源流和容器兼容性。",
+            "note": (
+                "当前源站没有向服务器提供可识别的 HDR 视频流；本次只能下载 SDR，不能靠转码把 SDR 变成 HDR。"
+                if platform_name(url) == "Instagram" and not format_metadata(info)["hdr_available"]
+                else "优先使用平台实际提供的原始视频流；若画面和声音分开提供，会尝试合并。HDR 是否保留取决于平台源流和容器兼容性。"
+            ),
         }
     except HTTPException:
         raise
