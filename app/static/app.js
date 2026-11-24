@@ -19,6 +19,14 @@ $("resolve").onclick=async()=>{
   $("formats").innerHTML="";
   j.choices.forEach(f=>{const o=document.createElement("option");o.value=f.quality;o.textContent=f.label;$("formats").appendChild(o)});
   renderSource(j.source||{});
+  const provenance = [
+   `创作者：${j.creator||"源站未提供"}`,
+   `原始发布日期：${j.source_date||"源站未提供"}`,
+   `内容编号：${j.source_post_id||"源站未提供"}`
+  ];
+  $("provenance").innerHTML="";
+  provenance.forEach(t=>{const li=document.createElement("li");li.textContent=t;$("provenance").appendChild(li)});
+  $("sourceLink").href=j.source_url||currentUrl;
   $("note").textContent=j.note;
   if(j.platform==="Instagram" && !(j.source||{}).hdr_available){
    $("note").textContent += " 请注意：当前认证状态或源站返回结果不包含 HDR；不要把本次文件当作 HDR。";
@@ -29,11 +37,12 @@ $("resolve").onclick=async()=>{
 $("download").onclick=()=>{
  if(!data)return;
  const quality=encodeURIComponent($("formats").value);
+ const outputMode=encodeURIComponent($("outputMode").value);
  const url=encodeURIComponent(currentUrl);
  const button=$("download");
  button.disabled=true;
  button.textContent="正在转换，请勿重复点击…";
  status("服务器正在生成 iPhone 兼容 MP4。此过程可能需要 1–3 分钟，请保持页面打开，不要连续点击。完成后浏览器会自动开始下载。");
  // Native attachment response avoids buffering the whole video in a JS Blob.
- window.location.href=`/api/download-file?url=${url}&quality=${quality}`;
+ window.location.href=`/api/download-file?url=${url}&quality=${quality}&output_mode=${outputMode}`;
 };
