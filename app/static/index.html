@@ -23,9 +23,16 @@
   <section id="status" class="status" aria-live="polite"></section>
   <section id="result" class="result hidden">
     <div class="videohead"><img id="thumb" alt=""><div><div id="platform" class="tag"></div><h2 id="title"></h2><small id="duration"></small></div></div>
-    <label for="formats">选择下载格式</label><select id="formats"></select>
+    <label for="formats">选择下载画质</label><select id="formats"></select>
+    <label for="outputMode">文件处理方式</label>
+    <select id="outputMode">
+      <option value="source">保留源流，不做兼容转码（优先保留原始编码）</option>
+      <option value="ios" selected>iPhone 兼容 MP4（必要时重新编码）</option>
+    </select>
     <button id="download" class="primary">下载视频 <span>↓</span></button>
+    <div class="sourceinfo"><strong>素材来源记录</strong><ul id="provenance"></ul><a id="sourceLink" target="_blank" rel="noopener noreferrer">打开 Instagram 原始帖子</a></div>
     <ul class="sourceinfo" id="sourceInfo"></ul><p class="hint" id="note"></p>
+    <p class="hint">请仅上传你拥有版权或已取得授权的内容。下载文件不会因此自动获得抖音原创认证。</p>
   </section>
   <footer><p>仅用于下载你拥有权利或已获授权的公开内容。请遵守各平台条款及当地法律。</p><p>不支持私密内容、绕过登录、付费墙或访问控制。</p></footer>
 </main>
