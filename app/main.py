@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import shutil
@@ -14,6 +15,9 @@ from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, HttpUrl
 import yt_dlp
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("social-video-downloader")
 
 APP_DIR = Path(__file__).parent
 DOWNLOAD_ROOT = Path(tempfile.gettempdir()) / "social-video-downloader"
@@ -172,14 +176,17 @@ def download(req: DownloadRequest):
             "max_filesize": MAX_FILE_MB * 1024 * 1024,
             "overwrites": True,
         })
+        logger.info("download job %s: starting yt-dlp", job_dir.name)
         with yt_dlp.YoutubeDL(opts) as downloader:
             info = downloader.extract_info(url, download=True)
+        logger.info("download job %s: yt-dlp completed", job_dir.name)
         if not info or info.get("is_live"):
             raise HTTPException(422, "无法下载该内容。")
         candidates = [p for p in job_dir.iterdir() if p.is_file() and not p.name.endswith((".part", ".ytdl"))]
         if not candidates:
             raise HTTPException(422, "没有生成可下载文件。")
         path = max(candidates, key=lambda p: p.stat().st_size)
+        logger.info("download job %s: media file=%s size=%s", job_dir.name, path.name, path.stat().st_size)
         if path.stat().st_size > MAX_FILE_MB * 1024 * 1024:
             raise HTTPException(413, "文件超过当前服务大小限制。")
 
@@ -197,12 +204,13 @@ def download(req: DownloadRequest):
         video_codec = (video_stream.get("codec_name") or "").lower()
         transfer = (video_stream.get("color_transfer") or "").lower()
         is_hdr = transfer in ("smpte2084", "arib-std-b67")
+        logger.info("download job %s: ffprobe codec=%s transfer=%s hdr=%s", job_dir.name, video_codec, transfer, is_hdr)
         if video_codec != "h264":
             fixed_path = job_dir / f"{path.stem}-ios.mp4"
             if is_hdr:
                 video_encoder = "libx265"
                 pixel_format = "yuv420p10le"
-                extra_video_args = ["-tag:v", "hvc1"]
+                extra_video_args = ["-tag:v", "hvc1", "-x265-params", "pools=1:frame-threads=1"]
             else:
                 video_encoder = "libx264"
                 pixel_format = "yuv420p"
@@ -210,13 +218,20 @@ def download(req: DownloadRequest):
             command = [
                 "ffmpeg", "-y", "-i", str(path),
                 "-map", "0:v:0", "-map", "0:a?",
+                "-filter_threads", "1", "-threads", "1",
                 "-c:v", video_encoder, "-preset", "veryfast",
                 "-crf", "18", "-pix_fmt", pixel_format,
                 *extra_video_args,
                 "-c:a", "aac", "-b:a", "192k",
                 "-movflags", "+faststart", str(fixed_path),
             ]
-            subprocess.run(command, capture_output=True, timeout=1800, check=True)
+            logger.info("download job %s: starting %s transcode", job_dir.name, video_encoder)
+            try:
+                result = subprocess.run(command, capture_output=True, text=True, timeout=1800, check=True)
+            except subprocess.CalledProcessError as exc:
+                logger.error("download job %s: ffmpeg failed rc=%s stderr=%s", job_dir.name, exc.returncode, (exc.stderr or "")[-4000:])
+                raise HTTPException(422, "视频转码失败，服务器已记录 FFmpeg 错误。请稍后重试或选择其他画质。")
+            logger.info("download job %s: transcode completed output_size=%s", job_dir.name, fixed_path.stat().st_size)
             path = fixed_path
 
         return FileResponse(
@@ -229,5 +244,6 @@ def download(req: DownloadRequest):
         shutil.rmtree(job_dir, ignore_errors=True)
         raise
     except Exception:
+        logger.exception("download job %s: unhandled download pipeline failure", job_dir.name)
         shutil.rmtree(job_dir, ignore_errors=True)
-        raise HTTPException(422, "下载失败：内容可能不可访问、格式已变化或超过文件大小限制。")
+        raise HTTPException(422, "下载失败：服务器处理媒体文件时发生错误，详细原因已记录。")
