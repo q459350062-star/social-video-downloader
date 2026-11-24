@@ -36,7 +36,7 @@ ALLOWED_HOSTS = {
 MAX_DURATION = int(os.getenv("MAX_DURATION_SECONDS", "3600"))
 MAX_FILE_MB = int(os.getenv("MAX_FILE_MB", "1024"))
 
-app = FastAPI(title="Social Video Downloader", version="1.2.0")
+app = FastAPI(title="Social Video Downloader", version="1.3.0")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 
 
@@ -506,7 +506,8 @@ def editor_export(
             command += ["-c:a", "aac", "-b:a", "192k"]
         if subtitle_path:
             # MP4 text subtitle track; keep it selectable instead of burning it into pixels.
-            command += ["-map", "2:0", "-c:s", "mov_text"]
+            subtitle_input_index = 2 if narration and narration.filename else 1
+            command += ["-map", f"{subtitle_input_index}:0", "-c:s", "mov_text"]
         command += ["-movflags", "+faststart", str(output)]
 
         logger.info("editor job %s: export start hdr_input=%s trim=%s..%s", job_dir.name, is_hdr, start, end)
