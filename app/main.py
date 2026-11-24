@@ -361,7 +361,14 @@ def download(req: DownloadRequest):
         # and can strip HDR metadata; this is already a Photos-friendly iPhone format.
         native_hdr_hevc = is_hdr and video_codec in ("hevc", "h265") and audio_codec in ("aac", "")
         needs_compat = (video_codec != "h264" or audio_codec not in ("aac", "")) and not native_hdr_hevc
-        if needs_compat and req.output_mode == "ios":
+        # A "source" download may still be unplayable on iPhone (for example VP9 in MP4).
+        # Preserve the original streams only when they are already broadly iOS-compatible;
+        # otherwise transcode so the downloaded file contains visible video as well as audio.
+        if needs_compat:
+            logger.info(
+                "download job %s: source mode=%s requires iPhone compatibility conversion codec=%s audio=%s",
+                job_dir.name, req.output_mode, video_codec, audio_codec,
+            )
             fixed_path = job_dir / f"{path.stem}-ios.mp4"
             if is_hdr:
                 video_encoder = "libx265"
