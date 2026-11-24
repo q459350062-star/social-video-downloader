@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#10131b">
+<title>VideoDrop 手机剪辑工作台</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.editor-hero{padding:34px 0 22px}.editor-card{margin-top:16px;background:rgba(25,30,41,.96);border:1px solid var(--line);border-radius:20px;padding:18px}.editor-card h2{font-size:17px;margin:0 0 8px}.editor-card p,.muted{color:var(--muted);font-size:12px;line-height:1.65}.field{margin:16px 0}.field input[type=file]{padding:12px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}.preview{width:100%;max-height:360px;background:#07090d;border-radius:14px;margin-top:12px}.check{display:flex;align-items:center;gap:9px;color:#cbd2df;font-size:13px}.check input{width:auto}.back{display:inline-block;color:var(--accent);text-decoration:none;font-size:13px;margin-top:18px}.notice{border:1px solid #59613e;background:#252b20;padding:12px;border-radius:12px;color:#d6e6b7;font-size:12px;line-height:1.6}@media(max-width:420px){.pair{grid-template-columns:1fr 1fr}.editor-card{padding:15px}}
+</style>
+</head>
+<body>
+<main class="wrap">
+<header><div class="logo">✂</div><div><div class="brand">VIDEODROP</div><div class="sub">MOBILE EDITOR</div></div><span class="pill">剪辑工作台</span></header>
+<section class="hero editor-hero">
+<div class="eyebrow">TRIM · VOICEOVER · SUBTITLES</div>
+<h1>把素材，<span>剪成作品。</span></h1>
+<p>手机浏览器直接剪辑单条视频：截取片段、添加自己的配音、加入可开关字幕轨道。</p>
+</section>
+<form class="editor-card" action="/api/editor/export" method="post" enctype="multipart/form-data">
+<div class="field"><label for="video">① 选择视频素材（最大 300 MB，最长 10 分钟）</label><input id="video" name="video" type="file" accept="video/mp4,video/quicktime,video/x-m4v,video/webm,.mkv" required><video id="preview" class="preview" controls playsinline hidden></video></div>
+<div class="field"><label>② 截取范围（秒）</label><div class="pair"><div><label for="trim_start">从第几秒开始</label><input id="trim_start" name="trim_start" type="number" min="0" max="3600" step="0.1" value="0"></div><div><label for="trim_end">从结尾裁掉几秒</label><input id="trim_end" name="trim_end" type="number" min="0" max="3600" step="0.1" value="0"></div></div></div>
+<div class="field"><label for="narration">③ 添加自己的配音（可选，选择后替换原音轨）</label><input id="narration" name="narration" type="file" accept="audio/*,.m4a,.caf"></div>
+<div class="field"><label for="subtitles">④ 添加字幕文件（可选，SRT 格式，作为可开关字幕轨道）</label><input id="subtitles" name="subtitles" type="file" accept=".srt,application/x-subrip"></div>
+<div class="field"><label class="check"><input type="checkbox" name="keep_original_audio" value="true" checked> 没有上传配音时，保留视频原声音</label></div>
+<div class="notice">画质说明：系统会检测输入视频的 HDR 标记。HDR 素材使用 HEVC 10-bit 编码路径，SDR 素材使用 H.264。剪辑导出需要重新编码，不能保证与原文件逐帧无损或在所有设备上保持完全相同的 HDR 显示效果。原始文件请另行保留。</div>
+<button class="primary" type="submit">开始剪辑并导出 MP4 <span>↓</span></button>
+<p class="muted">免费实例一次只处理一个任务。请保持页面打开，导出时间取决于视频长度和分辨率。素材只用于本次处理，完成下载后服务器会清理临时文件。</p>
+</form>
+<a class="back" href="/">← 返回三合一下载首页</a>
+<footer><p>仅处理你拥有版权或已获授权的素材。二次剪辑不会自动取得原素材版权，也不保证平台授予原创标识。</p></footer>
+</main>
+<script src="/static/editor.js"></script>
+</body></html>
