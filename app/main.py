@@ -408,7 +408,7 @@ def download(req: DownloadRequest):
         DOWNLOAD_LOCK.release()
         raise
     except Exception:
-        logger.exception("download job %s: unhandled download pipeline failure", job_dir.name)
+        logger.exception("download job %s: unhandled download pipeline failure", job_dir.name if job_dir else "unallocated")
         if job_dir is not None:
             cleanup_job_dir(job_dir)
         DOWNLOAD_LOCK.release()
@@ -494,7 +494,7 @@ def editor_metadata(
             cleanup_job_dir(job_dir)
         raise
     except Exception:
-        logger.exception("metadata job %s: unexpected failure", job_dir.name)
+        logger.exception("metadata job %s: unexpected failure", job_dir.name if job_dir else "unallocated")
         if job_dir is not None:
             cleanup_job_dir(job_dir)
         raise HTTPException(422, "元数据处理失败，原文件未被修改。")
@@ -645,7 +645,7 @@ def editor_export(
             cleanup_job_dir(job_dir)
         raise
     except Exception:
-        logger.exception("editor job %s: unexpected failure", job_dir.name)
+        logger.exception("editor job %s: unexpected failure", job_dir.name if job_dir else "unallocated")
         if job_dir is not None:
             cleanup_job_dir(job_dir)
         raise HTTPException(422, "剪辑处理失败，详细原因已记录。")
