@@ -122,6 +122,23 @@ def resolve(req: ResolveRequest):
             info = ydl.extract_info(url, download=False)
         if not info:
             raise ValueError("没有取得视频信息")
+        if platform_name(url) == "Instagram":
+            # Diagnostic: inspect all extractor-exposed renditions without logging signed media URLs.
+            available = [
+                {
+                    "id": item.get("format_id"),
+                    "ext": item.get("ext"),
+                    "height": item.get("height"),
+                    "fps": item.get("fps"),
+                    "vcodec": item.get("vcodec"),
+                    "dynamic_range": item.get("dynamic_range"),
+                    "format_note": item.get("format_note"),
+                    "protocol": item.get("protocol"),
+                }
+                for item in info.get("formats", [])
+                if item.get("vcodec") not in (None, "none")
+            ]
+            logger.info("Instagram format inventory video_id=%s formats=%s", info.get("id"), available)
         if info.get("is_live"):
             raise HTTPException(400, "暂不支持直播内容。")
         duration = info.get("duration")
