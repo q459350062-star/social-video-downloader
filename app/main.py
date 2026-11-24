@@ -131,7 +131,7 @@ def format_metadata(info: dict) -> dict:
         reverse=True,
     )
     best = formats[0] if formats else {}
-    hdr_values = sorted({str(f.get("dynamic_range")) for f in formats if f.get("dynamic_range")})
+    hdr_values = sorted({str(f.get("dynamic_range")) for f in formats if f.get("dynamic_range") and str(f.get("dynamic_range")).upper() != "SDR"})
     codecs = sorted({str(f.get("vcodec")).split(".")[0] for f in formats if f.get("vcodec") not in (None, "none")})
     return {
         "max_resolution": f"{best.get('width')}×{best.get('height')}" if best.get("width") and best.get("height") else (f"最高 {best.get('height')}P" if best.get("height") else "平台未提供分辨率信息"),
