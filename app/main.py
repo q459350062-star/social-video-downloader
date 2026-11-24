@@ -205,34 +205,14 @@ def download(req: DownloadRequest):
         transfer = (video_stream.get("color_transfer") or "").lower()
         is_hdr = transfer in ("smpte2084", "arib-std-b67")
         logger.info("download job %s: ffprobe codec=%s transfer=%s hdr=%s", job_dir.name, video_codec, transfer, is_hdr)
+        # Do not transcode on the 512 MiB Render Free instance.
+        # Preserve the source stream exactly; VP9/AV1 playback support depends on
+        # the receiving device/browser. H.264 is preferred by the format selector.
         if video_codec != "h264":
-            fixed_path = job_dir / f"{path.stem}-ios.mp4"
-            if is_hdr:
-                video_encoder = "libx265"
-                pixel_format = "yuv420p10le"
-                extra_video_args = ["-tag:v", "hvc1", "-x265-params", "pools=1:frame-threads=1"]
-            else:
-                video_encoder = "libx264"
-                pixel_format = "yuv420p"
-                extra_video_args = []
-            command = [
-                "ffmpeg", "-y", "-i", str(path),
-                "-map", "0:v:0", "-map", "0:a?",
-                "-filter_threads", "1", "-threads", "1",
-                "-c:v", video_encoder, "-preset", "veryfast",
-                "-crf", "18", "-pix_fmt", pixel_format,
-                *extra_video_args,
-                "-c:a", "aac", "-b:a", "192k",
-                "-movflags", "+faststart", str(fixed_path),
-            ]
-            logger.info("download job %s: starting %s transcode", job_dir.name, video_encoder)
-            try:
-                result = subprocess.run(command, capture_output=True, text=True, timeout=1800, check=True)
-            except subprocess.CalledProcessError as exc:
-                logger.error("download job %s: ffmpeg failed rc=%s stderr=%s", job_dir.name, exc.returncode, (exc.stderr or "")[-4000:])
-                raise HTTPException(422, "视频转码失败，服务器已记录 FFmpeg 错误。请稍后重试或选择其他画质。")
-            logger.info("download job %s: transcode completed output_size=%s", job_dir.name, fixed_path.stat().st_size)
-            path = fixed_path
+            logger.warning(
+                "download job %s: preserving original %s stream; server-side transcode disabled to prevent OOM",
+                job_dir.name, video_codec
+            )
 
         return FileResponse(
             path,
