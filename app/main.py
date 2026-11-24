@@ -229,7 +229,10 @@ def download(req: DownloadRequest):
         # iPhone Photos/Safari need broadly compatible MP4 video/audio.
         # Limit decoder AND encoder threads: decoder thread limits must be set
         # before -i, otherwise VP9 decoding can still allocate excessive memory.
-        needs_compat = video_codec != "h264" or audio_codec not in ("aac", "")
+        # Preserve native HDR HEVC + AAC streams as-is. Re-encoding them wastes RAM
+        # and can strip HDR metadata; this is already a Photos-friendly iPhone format.
+        native_hdr_hevc = is_hdr and video_codec in ("hevc", "h265") and audio_codec in ("aac", "")
+        needs_compat = (video_codec != "h264" or audio_codec not in ("aac", "")) and not native_hdr_hevc
         if needs_compat:
             fixed_path = job_dir / f"{path.stem}-ios.mp4"
             if is_hdr:
