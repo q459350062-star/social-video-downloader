@@ -1,3 +1,3 @@
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
-yt-dlp>=2025.11.12
+yt-dlp>=2026.8.19\nyt-dlp-instagram-hdr>=0.6.1
