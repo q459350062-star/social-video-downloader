@@ -1,6 +1,8 @@
+import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import uuid
 from pathlib import Path
@@ -148,11 +150,17 @@ def download(req: DownloadRequest):
     if req.quality != "best" and not re.fullmatch(r"height:[0-9]{1,5}", req.quality):
         raise HTTPException(400, "画质选项无效，请重新解析。")
 
+    # Prefer H.264 + AAC for broad iPhone/iOS playback compatibility.
+    # If the source only offers VP9/AV1, the post-download step transcodes it.
     if req.quality == "best":
-        selector = "bestvideo+bestaudio/best"
+        selector = "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc1]/bestvideo+bestaudio/best"
     else:
         height = int(req.quality.split(":", 1)[1])
-        selector = f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
+        selector = (
+            f"bestvideo[height<={height}][vcodec^=avc1]+bestaudio[ext=m4a]/"
+            f"best[height<={height}][ext=mp4][vcodec^=avc1]/"
+            f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
+        )
 
     job_dir = DOWNLOAD_ROOT / uuid.uuid4().hex
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -174,6 +182,43 @@ def download(req: DownloadRequest):
         path = max(candidates, key=lambda p: p.stat().st_size)
         if path.stat().st_size > MAX_FILE_MB * 1024 * 1024:
             raise HTTPException(413, "文件超过当前服务大小限制。")
+
+        # iOS Photos/Safari do not reliably play VP9-in-MP4. Inspect the actual
+        # downloaded stream rather than trusting the filename/container.
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(path)],
+            capture_output=True, text=True, timeout=30, check=True,
+        )
+        streams = json.loads(probe.stdout).get("streams", [])
+        video_stream = next((st for st in streams if st.get("codec_type") == "video"), None)
+        if not video_stream:
+            raise HTTPException(422, "下载文件中没有可识别的视频画面轨道。")
+
+        video_codec = (video_stream.get("codec_name") or "").lower()
+        transfer = (video_stream.get("color_transfer") or "").lower()
+        is_hdr = transfer in ("smpte2084", "arib-std-b67")
+        if video_codec != "h264":
+            fixed_path = job_dir / f"{path.stem}-ios.mp4"
+            if is_hdr:
+                video_encoder = "libx265"
+                pixel_format = "yuv420p10le"
+                extra_video_args = ["-tag:v", "hvc1"]
+            else:
+                video_encoder = "libx264"
+                pixel_format = "yuv420p"
+                extra_video_args = []
+            command = [
+                "ffmpeg", "-y", "-i", str(path),
+                "-map", "0:v:0", "-map", "0:a?",
+                "-c:v", video_encoder, "-preset", "veryfast",
+                "-crf", "18", "-pix_fmt", pixel_format,
+                *extra_video_args,
+                "-c:a", "aac", "-b:a", "192k",
+                "-movflags", "+faststart", str(fixed_path),
+            ]
+            subprocess.run(command, capture_output=True, timeout=1800, check=True)
+            path = fixed_path
+
         return FileResponse(
             path,
             filename=path.name,
