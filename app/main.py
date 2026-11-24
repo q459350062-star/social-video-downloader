@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
@@ -407,3 +407,129 @@ def download(req: DownloadRequest):
         shutil.rmtree(job_dir, ignore_errors=True)
         DOWNLOAD_LOCK.release()
         raise HTTPException(422, "下载失败：服务器处理媒体文件时发生错误，详细原因已记录。")
+
+@app.post("/api/editor/export")
+def editor_export(
+    video: UploadFile = File(...),
+    narration: UploadFile | None = File(None),
+    subtitles: UploadFile | None = File(None),
+    trim_start: float = Form(0),
+    trim_end: float = Form(0),
+    keep_original_audio: bool = Form(True),
+):
+    """Small, single-clip mobile editor export. Files are temporary and removed after response."""
+    if trim_start < 0 or trim_end < 0 or trim_start > 3600 or trim_end > 3600:
+        raise HTTPException(400, "剪辑时间无效。")
+    if not video.filename:
+        raise HTTPException(400, "请先选择视频文件。")
+    allowed_video = {".mp4", ".mov", ".m4v", ".mkv", ".webm"}
+    if Path(video.filename).suffix.lower() not in allowed_video:
+        raise HTTPException(400, "视频格式仅支持 MP4、MOV、M4V、MKV、WebM。")
+    if narration and narration.filename and Path(narration.filename).suffix.lower() not in {".mp3", ".m4a", ".aac", ".wav", ".caf", ".mp4", ".mov"}:
+        raise HTTPException(400, "配音格式暂不支持。")
+    if subtitles and subtitles.filename and Path(subtitles.filename).suffix.lower() != ".srt":
+        raise HTTPException(400, "字幕文件请使用 SRT 格式。")
+
+    if not DOWNLOAD_LOCK.acquire(timeout=1):
+        raise HTTPException(503, "服务器正在处理另一个视频任务，请稍后再试。")
+
+    job_dir = DOWNLOAD_ROOT / ("edit-" + uuid.uuid4().hex)
+    try:
+        job_dir.mkdir(parents=True, exist_ok=True)
+        input_path = job_dir / "source" / ("input" + Path(video.filename).suffix.lower())
+        input_path.parent.mkdir(parents=True, exist_ok=True)
+        with input_path.open("wb") as dst:
+            shutil.copyfileobj(video.file, dst)
+        if input_path.stat().st_size > 300 * 1024 * 1024:
+            raise HTTPException(413, "单个视频最大支持 300 MB；请先压缩或缩短素材。")
+
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(input_path)],
+            capture_output=True, text=True, timeout=30, check=True,
+        )
+        probe_data = json.loads(probe.stdout)
+        streams = probe_data.get("streams", [])
+        video_stream = next((s for s in streams if s.get("codec_type") == "video"), None)
+        if not video_stream:
+            raise HTTPException(422, "文件中没有可识别的视频轨道。")
+        duration = float((probe_data.get("format") or {}).get("duration") or 0)
+        if duration <= 0 or duration > 600:
+            raise HTTPException(413, "当前手机编辑器单条素材限制为 10 分钟。")
+        start = min(float(trim_start), duration)
+        end = duration - float(trim_end) if trim_end > 0 else duration
+        if end <= start or end - start < 0.5:
+            raise HTTPException(400, "剪辑后时长至少需要 0.5 秒。")
+
+        hdr_transfer = (video_stream.get("color_transfer") or "").lower()
+        is_hdr = hdr_transfer in ("smpte2084", "arib-std-b67")
+        output = job_dir / "edited.mp4"
+        command = ["ffmpeg", "-y", "-threads", "1", "-filter_threads", "1", "-ss", str(start), "-i", str(input_path)]
+        audio_path = None
+        subtitle_path = None
+        if narration and narration.filename:
+            audio_path = job_dir / ("voice" + Path(narration.filename).suffix.lower())
+            with audio_path.open("wb") as dst:
+                shutil.copyfileobj(narration.file, dst)
+            if audio_path.stat().st_size > 100 * 1024 * 1024:
+                raise HTTPException(413, "配音文件最大支持 100 MB。")
+            command += ["-i", str(audio_path)]
+        if subtitles and subtitles.filename:
+            subtitle_path = job_dir / "captions.srt"
+            with subtitle_path.open("wb") as dst:
+                shutil.copyfileobj(subtitles.file, dst)
+            if subtitle_path.stat().st_size > 5 * 1024 * 1024:
+                raise HTTPException(413, "字幕文件最大支持 5 MB。")
+            command += ["-i", str(subtitle_path)]
+
+        command += ["-t", str(end - start), "-map", "0:v:0"]
+        if narration and narration.filename:
+            command += ["-map", "1:a:0"]
+        elif keep_original_audio:
+            command += ["-map", "0:a?"]
+        else:
+            command += ["-an"]
+
+        if is_hdr:
+            command += [
+                "-c:v", "libx265", "-preset", "ultrafast", "-crf", "20",
+                "-pix_fmt", "yuv420p10le", "-tag:v", "hvc1", "-threads:v", "1",
+                "-x265-params", "pools=1:frame-threads=1",
+                "-color_primaries", video_stream.get("color_primaries", "bt2020"),
+                "-color_trc", video_stream.get("color_transfer", "smpte2084"),
+                "-colorspace", video_stream.get("color_space", "bt2020nc"),
+            ]
+        else:
+            command += ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "20", "-pix_fmt", "yuv420p", "-threads:v", "1"]
+        if narration and narration.filename:
+            command += ["-c:a", "aac", "-b:a", "192k"]
+        else:
+            command += ["-c:a", "aac", "-b:a", "192k"]
+        if subtitle_path:
+            # MP4 text subtitle track; keep it selectable instead of burning it into pixels.
+            command += ["-i", str(subtitle_path), "-map", "2:0", "-c:s", "mov_text"]
+        command += ["-movflags", "+faststart", str(output)]
+
+        logger.info("editor job %s: export start hdr_input=%s trim=%s..%s", job_dir.name, is_hdr, start, end)
+        try:
+            subprocess.run(command, capture_output=True, text=True, timeout=1800, check=True)
+        except subprocess.CalledProcessError as exc:
+            logger.error("editor job %s: ffmpeg failed rc=%s stderr=%s", job_dir.name, exc.returncode, (exc.stderr or "")[-3000:])
+            raise HTTPException(422, "剪辑导出失败。请尝试缩短视频或降低素材规格。")
+        if not output.exists() or output.stat().st_size == 0:
+            raise HTTPException(422, "没有生成有效的导出文件。")
+        logger.info("editor job %s: export complete size=%s hdr_source=%s", job_dir.name, output.stat().st_size, is_hdr)
+        return FileResponse(
+            output,
+            filename="VideoDrop-Edited.mp4",
+            media_type="video/mp4",
+            background=BackgroundTask(shutil.rmtree, job_dir, ignore_errors=True),
+        )
+    except HTTPException:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
+    except Exception:
+        logger.exception("editor job %s: unexpected failure", job_dir.name)
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise HTTPException(422, "剪辑处理失败，详细原因已记录。")
+    finally:
+        DOWNLOAD_LOCK.release()
