@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+from contextlib import contextmanager
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
@@ -57,8 +58,34 @@ def validate_url(raw: str) -> str:
     return raw
 
 
-def ydl_options():
-    return {
+@contextmanager
+def temporary_instagram_cookies(directory: Path):
+    """Write an optional Netscape-format cookie secret to a private temporary file."""
+    raw = os.getenv("INSTAGRAM_COOKIES", "").strip()
+    if not raw:
+        yield None
+        return
+    cookie_rows = [
+        line for line in raw.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    if not any(line.count("\\t") >= 6 for line in cookie_rows):
+        raise RuntimeError("INSTAGRAM_COOKIES must contain Netscape-format cookies.")
+    fd, cookie_path = tempfile.mkstemp(prefix=".instagram-cookies-", suffix=".txt", dir=str(directory))
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as cookie_file:
+            cookie_file.write(raw + "\\n")
+        yield cookie_path
+    finally:
+        try:
+            os.unlink(cookie_path)
+        except FileNotFoundError:
+            pass
+
+
+def ydl_options(cookiefile=None):
+    options = {
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
@@ -70,6 +97,9 @@ def ydl_options():
         "nocheckcertificate": False,
         "cachedir": False,
     }
+    if cookiefile:
+        options["cookiefile"] = cookiefile
+    return options
 
 
 def platform_name(url: str) -> str:
@@ -92,7 +122,14 @@ def get_video_heights(info: dict) -> list[int]:
 
 def format_metadata(info: dict) -> dict:
     formats = [f for f in info.get("formats", []) if f.get("vcodec") not in (None, "none")]
-    formats.sort(key=lambda f: (f.get("height") or 0, f.get("fps") or 0), reverse=True)
+    formats.sort(
+        key=lambda f: (
+            bool(f.get("dynamic_range") and str(f.get("dynamic_range")).upper() != "SDR"),
+            f.get("height") or 0,
+            f.get("fps") or 0,
+        ),
+        reverse=True,
+    )
     best = formats[0] if formats else {}
     hdr_values = sorted({str(f.get("dynamic_range")) for f in formats if f.get("dynamic_range")})
     codecs = sorted({str(f.get("vcodec")).split(".")[0] for f in formats if f.get("vcodec") not in (None, "none")})
@@ -118,8 +155,9 @@ def home():
 def resolve(req: ResolveRequest):
     url = validate_url(str(req.url))
     try:
-        with yt_dlp.YoutubeDL(ydl_options()) as ydl:
-            info = ydl.extract_info(url, download=False)
+        with temporary_instagram_cookies(DOWNLOAD_ROOT) as cookiefile:
+            with yt_dlp.YoutubeDL(ydl_options(cookiefile if platform_name(url) == "Instagram" else None)) as ydl:
+                info = ydl.extract_info(url, download=False)
         if not info:
             raise ValueError("没有取得视频信息")
         if platform_name(url) == "Instagram":
@@ -186,33 +224,49 @@ def download(req: DownloadRequest):
 
     # Prefer H.264 + AAC for broad iPhone/iOS playback compatibility.
     # If the source only offers VP9/AV1, the post-download step transcodes it.
+    is_instagram = platform_name(url) == "Instagram"
     if req.quality == "best":
-        # Do not force H.264 first: that can silently select an SDR rendition when Instagram also exposes HDR.
-        selector = "bestvideo+bestaudio/best"
+        # Instagram HDR plugin formats are selected first when authenticated HDR renditions exist.
+        # The second branch deliberately falls back to the best available stream, never fabricating HDR.
+        selector = (
+            "bv*[dynamic_range!=SDR]+ba/bv*+ba/b"
+            if is_instagram else "bestvideo+bestaudio/best"
+        )
     else:
         height = int(req.quality.split(":", 1)[1])
-        selector = (
-            f"bestvideo[height<={height}][vcodec^=avc1]+bestaudio[ext=m4a]/"
-            f"best[height<={height}][ext=mp4][vcodec^=avc1]/"
-            f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
-        )
+        if is_instagram:
+            selector = (
+                f"bv*[height<={height}][dynamic_range!=SDR]+ba/"
+                f"bv*[height<={height}]+ba/b"
+            )
+        else:
+            selector = (
+                f"bestvideo[height<={height}][vcodec^=avc1]+bestaudio[ext=m4a]/"
+                f"best[height<={height}][ext=mp4][vcodec^=avc1]/"
+                f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
+            )
 
     job_dir = DOWNLOAD_ROOT / uuid.uuid4().hex
     try:
         job_dir.mkdir(parents=True, exist_ok=True)
-        opts = ydl_options()
-        opts.update({
+        with temporary_instagram_cookies(job_dir) as cookiefile:
+            opts = ydl_options(cookiefile if is_instagram else None)
+            opts.update({
             "format": selector,
             # Prefer HDR formats before resolution/codec when the extractor exposes dynamic_range.
             "format_sort": ["hdr", "res", "fps", "vcodec"],
             "format_sort_force": True,
             "outtmpl": str(job_dir / "%(title).80s-%(id)s.%(ext)s"),
             "max_filesize": MAX_FILE_MB * 1024 * 1024,
-            "overwrites": True,
-        })
-        logger.info("download job %s: starting yt-dlp", job_dir.name)
-        with yt_dlp.YoutubeDL(opts) as downloader:
-            info = downloader.extract_info(url, download=True)
+                "overwrites": True,
+            })
+            logger.info(
+                "download job %s: starting yt-dlp instagram_cookie_auth=%s",
+                job_dir.name,
+                bool(cookiefile) if is_instagram else False,
+            )
+            with yt_dlp.YoutubeDL(opts) as downloader:
+                info = downloader.extract_info(url, download=True)
         logger.info("download job %s: yt-dlp completed selected_format=%s dynamic_range=%s requested_formats=%s", job_dir.name, info.get("format_id"), info.get("dynamic_range"), [(f.get("format_id"), f.get("dynamic_range"), f.get("vcodec"), f.get("height")) for f in info.get("requested_formats", [])])
         if not info or info.get("is_live"):
             raise HTTPException(422, "无法下载该内容。")
