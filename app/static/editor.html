@@ -27,6 +27,21 @@
 <button class="primary" id="save_script" type="button">保存评论稿到手机（TXT） ↓</button>
 <p class="muted">来源署名不等于授权。没有授权时，请把原视频作为研究参考，不要直接将整条视频作为成片主体。</p>
 </section>
+<section class="editor-card" id="metadata-editor">
+<h2>视频版权与创作信息（不重新编码）</h2>
+<p>将你的个人名称记录为剪辑者/解说者，并保留原作者、原版权人及来源信息。此功能只修改 MP4 容器元数据，不改变视频流编码，也不转移版权。</p>
+<form action="/api/editor/metadata" method="post" enctype="multipart/form-data" id="metadata_form">
+<div class="field"><label for="metadata_video">① 选择 MP4 / MOV / M4V 视频（最大 300 MB）</label><input id="metadata_video" name="video" type="file" accept="video/mp4,video/quicktime,.m4v" required></div>
+<div class="field"><label for="personal_name">② 你的个人名称（写入剪辑者/解说者）</label><input id="personal_name" name="personal_name" type="text" maxlength="120" placeholder="填写你的个人名称" required></div>
+<div class="field"><label for="personal_role">③ 你的创作身份</label><select id="personal_role" name="personal_role"><option>剪辑者/解说者</option><option>剪辑者</option><option>解说者</option><option>配音者</option></select></div>
+<div class="field"><label for="source_creator_meta">④ 原作者名称</label><input id="source_creator_meta" name="source_creator" type="text" maxlength="200" placeholder="填写原作者账号或名称"></div>
+<div class="field"><label for="original_rightsholder">⑤ 原版权人（如已知）</label><input id="original_rightsholder" name="original_rightsholder" type="text" maxlength="200" placeholder="没有资料可留空"></div>
+<div class="field"><label for="source_url_meta">⑥ 原视频来源链接</label><input id="source_url_meta" name="source_url" type="url" maxlength="2048" placeholder="粘贴原视频链接"></div>
+<div class="notice">此功能会将个人名称写入 artist 字段，将原版权人写入 copyright 字段（如填写），并记录来源与角色。它不会把原版权人替换成你，也不会让他人拍摄的视频变成你拍摄的作品。若你已取得正式版权转让，应先核实协议范围，再按实际权利人信息填写。</div>
+<button class="primary" type="submit" id="metadata_button">写入信息并导出（保留原编码） ↓</button>
+<p class="muted">采用 FFmpeg stream copy（-c copy），不重新压缩视频和音频；容器重封装仍可能影响部分非标准元数据，建议保留原始文件。HDR 位流通常可原样复制，但本功能不保证所有设备显示一致。</p>
+</form>
+</section>
 <form class="editor-card" action="/api/editor/export" method="post" enctype="multipart/form-data">
 <div class="field"><label for="video">① 选择视频素材（最大 300 MB，最长 10 分钟）</label><input id="video" name="video" type="file" accept="video/mp4,video/quicktime,video/x-m4v,video/webm,.mkv" required><video id="preview" class="preview" controls playsinline hidden></video></div>
 <div class="field"><label>② 截取范围（秒）</label><div class="pair"><div><label for="trim_start">从第几秒开始</label><input id="trim_start" name="trim_start" type="number" min="0" max="3600" step="0.1" value="0"></div><div><label for="trim_end">从结尾裁掉几秒</label><input id="trim_end" name="trim_end" type="number" min="0" max="3600" step="0.1" value="0"></div></div></div>
