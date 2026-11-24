@@ -133,14 +133,25 @@ def format_metadata(info: dict) -> dict:
         reverse=True,
     )
     best = formats[0] if formats else {}
-    hdr_values = sorted({str(f.get("dynamic_range")) for f in formats if f.get("dynamic_range") and str(f.get("dynamic_range")).upper() != "SDR"})
-    codecs = sorted({str(f.get("vcodec")).split(".")[0] for f in formats if f.get("vcodec") not in (None, "none")})
+    hdr_values = sorted({
+        str(f.get("dynamic_range")) for f in formats
+        if f.get("dynamic_range") and str(f.get("dynamic_range")).upper() != "SDR"
+    })
+    codecs = sorted({
+        str(f.get("vcodec")).split(".")[0] for f in formats
+        if f.get("vcodec") not in (None, "none")
+    })
+    known_ranges = {str(f.get("dynamic_range")).upper() for f in formats if f.get("dynamic_range")}
+    hdr_status = "HDR可用" if hdr_values else ("仅报告SDR" if known_ranges and known_ranges <= {"SDR"} else "源站未提供明确HDR标记")
     return {
         "max_resolution": f"{best.get('width')}×{best.get('height')}" if best.get("width") and best.get("height") else (f"最高 {best.get('height')}P" if best.get("height") else "平台未提供分辨率信息"),
         "max_fps": best.get("fps"),
         "video_codecs": codecs,
+        "best_video_codec": str(best.get("vcodec") or "").split(".")[0] or None,
+        "best_dynamic_range": best.get("dynamic_range"),
         "hdr": hdr_values,
         "hdr_available": bool(hdr_values),
+        "hdr_status": hdr_status,
     }
 
 
@@ -231,7 +242,7 @@ def resolve(req: ResolveRequest):
             "source_date": info.get("upload_date") or "",
             "source": format_metadata(info),
             "note": (
-                "当前源站没有向服务器提供可识别的 HDR 视频流；本次只能下载 SDR，不能靠转码把 SDR 变成 HDR。"
+                "当前解析结果未发现明确的 HDR 标记；这不等于已确认源视频是 SDR。请以下载后的媒体检测结果为准，转码也不能把 SDR 真实转换成 HDR。"
                 if platform_name(url) == "Instagram" and not format_metadata(info)["hdr_available"]
                 else "优先使用平台实际提供的原始视频流；若画面和声音分开提供，会尝试合并。HDR 是否保留取决于平台源流和容器兼容性。"
             ),
