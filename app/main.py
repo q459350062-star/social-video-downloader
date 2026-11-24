@@ -148,6 +148,12 @@ def resolve(req: ResolveRequest):
         raise HTTPException(422, "解析失败：链接可能失效、内容不可公开访问，或平台暂时限制了服务器请求。")
 
 
+@app.get("/api/download-file")
+def download_file(url: HttpUrl, quality: str):
+    """Native browser download path; avoids buffering the whole video in JS Blob memory."""
+    return download(DownloadRequest(url=url, quality=quality))
+
+
 @app.post("/api/download")
 def download(req: DownloadRequest):
     url = validate_url(str(req.url))
@@ -205,19 +211,49 @@ def download(req: DownloadRequest):
         transfer = (video_stream.get("color_transfer") or "").lower()
         is_hdr = transfer in ("smpte2084", "arib-std-b67")
         logger.info("download job %s: ffprobe codec=%s transfer=%s hdr=%s", job_dir.name, video_codec, transfer, is_hdr)
-        # Do not transcode on the 512 MiB Render Free instance.
-        # Preserve the source stream exactly; VP9/AV1 playback support depends on
-        # the receiving device/browser. H.264 is preferred by the format selector.
-        if video_codec != "h264":
-            logger.warning(
-                "download job %s: preserving original %s stream; server-side transcode disabled to prevent OOM",
-                job_dir.name, video_codec
-            )
+        audio_stream = next((st for st in streams if st.get("codec_type") == "audio"), None)
+        audio_codec = (audio_stream.get("codec_name") or "").lower() if audio_stream else ""
+        logger.info("download job %s: audio codec=%s", job_dir.name, audio_codec)
+
+        # iPhone Photos/Safari need broadly compatible MP4 video/audio.
+        # Limit decoder AND encoder threads: decoder thread limits must be set
+        # before -i, otherwise VP9 decoding can still allocate excessive memory.
+        needs_compat = video_codec != "h264" or audio_codec not in ("aac", "")
+        if needs_compat:
+            fixed_path = job_dir / f"{path.stem}-ios.mp4"
+            if is_hdr:
+                video_encoder = "libx265"
+                pixel_format = "yuv420p10le"
+                extra_video_args = ["-tag:v", "hvc1", "-x265-params", "pools=1:frame-threads=1"]
+            else:
+                video_encoder = "libx264"
+                pixel_format = "yuv420p"
+                extra_video_args = ["-profile:v", "high", "-level:v", "4.2"]
+            command = [
+                "ffmpeg", "-y", "-threads", "1", "-filter_threads", "1",
+                "-i", str(path),
+                "-map", "0:v:0", "-map", "0:a?",
+                "-c:v", video_encoder, "-preset", "ultrafast",
+                "-crf", "18", "-pix_fmt", pixel_format, "-threads:v", "1",
+                *extra_video_args,
+                "-c:a", "aac", "-b:a", "192k",
+                "-movflags", "+faststart", str(fixed_path),
+            ]
+            logger.info("download job %s: starting low-memory %s compatibility transcode", job_dir.name, video_encoder)
+            try:
+                subprocess.run(command, capture_output=True, text=True, timeout=1800, check=True)
+            except subprocess.CalledProcessError as exc:
+                logger.error("download job %s: ffmpeg failed rc=%s stderr=%s", job_dir.name, exc.returncode, (exc.stderr or "")[-4000:])
+                raise HTTPException(422, "视频兼容转换失败。请稍后重试；原始视频编码暂不适合 iPhone 照片播放。")
+            if not fixed_path.exists() or fixed_path.stat().st_size == 0:
+                raise HTTPException(422, "视频兼容转换没有生成有效文件。")
+            path = fixed_path
+            logger.info("download job %s: compatibility transcode completed size=%s", job_dir.name, path.stat().st_size)
 
         return FileResponse(
             path,
             filename=path.name,
-            media_type="application/octet-stream",
+            media_type="video/mp4" if path.suffix.lower() == ".mp4" else "application/octet-stream",
             background=BackgroundTask(shutil.rmtree, job_dir, ignore_errors=True),
         )
     except HTTPException:
