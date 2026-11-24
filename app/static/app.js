@@ -2,7 +2,14 @@ const $=id=>document.getElementById(id);
 let currentUrl="", data=null;
 function status(msg,error=false){$("status").textContent=msg;$("status").style.color=error?"#ff9b9b":"#aab4c5";}
 function renderSource(s){
- const items=[`源站最高规格：${s.max_resolution||"未知"}`,`最高帧率：${s.max_fps?`${s.max_fps} FPS`:"未提供"}`,`视频编码：${(s.video_codecs||[]).join(" / ")||"未知"}`,`HDR：${(s.hdr||[]).join(" / ")||"未检测到/未提供"}`];
+ const items=[
+  `源站最高规格：${s.max_resolution||"未知"}`,
+  `最高帧率：${s.max_fps?`${s.max_fps} FPS`:"未提供"}`,
+  `视频编码：${(s.video_codecs||[]).join(" / ")||"未知"}`,
+  `HDR状态：${s.hdr_status||"源站未提供明确标记"}`,
+  `优先规格编码：${s.best_video_codec||"未知"}`,
+  `优先规格动态范围：${s.best_dynamic_range||"未提供"}`
+ ];
  $("sourceInfo").innerHTML="";
  items.forEach(t=>{const li=document.createElement("li");li.textContent=t;$("sourceInfo").appendChild(li)});
 }
@@ -42,7 +49,7 @@ $("download").onclick=()=>{
  const button=$("download");
  button.disabled=true;
  button.textContent="正在转换，请勿重复点击…";
- status("服务器正在生成 iPhone 兼容 MP4。此过程可能需要 1–3 分钟，请保持页面打开，不要连续点击。完成后浏览器会自动开始下载。");
+ status($("outputMode").value==="source"?"正在下载源流版本，服务器不会执行 iPhone 兼容转码；部分编码可能无法在 iPhone 相册播放。":"服务器正在生成 iPhone 兼容 MP4（必要时重新编码）。此过程可能需要 1–3 分钟，请保持页面打开。");
  // Native attachment response avoids buffering the whole video in a JS Blob.
  window.location.href=`/api/download-file?url=${url}&quality=${quality}&output_mode=${outputMode}`;
 };
