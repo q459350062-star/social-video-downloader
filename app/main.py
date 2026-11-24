@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
@@ -22,6 +23,8 @@ logger = logging.getLogger("social-video-downloader")
 APP_DIR = Path(__file__).parent
 DOWNLOAD_ROOT = Path(tempfile.gettempdir()) / "social-video-downloader"
 DOWNLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+# The free Render instance has only 512 MiB RAM; never run two FFmpeg jobs at once.
+DOWNLOAD_LOCK = threading.Lock()
 
 ALLOWED_HOSTS = {
     "tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com",
@@ -159,6 +162,8 @@ def download(req: DownloadRequest):
     url = validate_url(str(req.url))
     if req.quality != "best" and not re.fullmatch(r"height:[0-9]{1,5}", req.quality):
         raise HTTPException(400, "画质选项无效，请重新解析。")
+    if not DOWNLOAD_LOCK.acquire(blocking=False):
+        raise HTTPException(429, "服务器正在转换上一条视频，请稍候，不要重复点击下载。")
 
     # Prefer H.264 + AAC for broad iPhone/iOS playback compatibility.
     # If the source only offers VP9/AV1, the post-download step transcodes it.
@@ -173,8 +178,8 @@ def download(req: DownloadRequest):
         )
 
     job_dir = DOWNLOAD_ROOT / uuid.uuid4().hex
-    job_dir.mkdir(parents=True, exist_ok=True)
     try:
+        job_dir.mkdir(parents=True, exist_ok=True)
         opts = ydl_options()
         opts.update({
             "format": selector,
@@ -250,16 +255,20 @@ def download(req: DownloadRequest):
             path = fixed_path
             logger.info("download job %s: compatibility transcode completed size=%s", job_dir.name, path.stat().st_size)
 
-        return FileResponse(
+        response = FileResponse(
             path,
             filename=path.name,
             media_type="video/mp4" if path.suffix.lower() == ".mp4" else "application/octet-stream",
             background=BackgroundTask(shutil.rmtree, job_dir, ignore_errors=True),
         )
+        DOWNLOAD_LOCK.release()
+        return response
     except HTTPException:
         shutil.rmtree(job_dir, ignore_errors=True)
+        DOWNLOAD_LOCK.release()
         raise
     except Exception:
         logger.exception("download job %s: unhandled download pipeline failure", job_dir.name)
         shutil.rmtree(job_dir, ignore_errors=True)
+        DOWNLOAD_LOCK.release()
         raise HTTPException(422, "下载失败：服务器处理媒体文件时发生错误，详细原因已记录。")
