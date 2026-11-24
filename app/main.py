@@ -489,7 +489,7 @@ def editor_metadata(
         ]
         command = [
             "ffmpeg", "-y", "-i", str(input_path), "-map", "0", "-map_metadata", "0",
-            "-c", "copy", "-metadata", f"artist={personal_name.strip()}",
+            "-c", "copy",
             "-metadata", f"comment={'；'.join(attribution)}",
             "-metadata", f"description={'；'.join(attribution)}",
             "-movflags", "+faststart", "-f", "mp4", str(output),
