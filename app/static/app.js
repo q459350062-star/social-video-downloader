@@ -16,7 +16,7 @@ function renderSource(s){
 $("paste").onclick=async()=>{try{$("url").value=await navigator.clipboard.readText();}catch{status("浏览器未允许读取剪贴板，请长按输入框粘贴。",true)}};
 $("resolve").onclick=async()=>{
  const url=$("url").value.trim(); if(!url){status("请先粘贴视频链接。",true);return}
- currentUrl=url; $("result").classList.add("hidden"); $("resolve").disabled=true; status("正在识别平台并读取源站可用规格…");
+ currentUrl=url; data=null; $("result").classList.add("hidden"); $("resolve").disabled=true; status("正在识别平台并读取源站可用规格…");
  try{
   const r=await fetch("/api/resolve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url})});
   const j=await r.json(); if(!r.ok)throw new Error(j.detail||"解析失败");
@@ -38,18 +38,43 @@ $("resolve").onclick=async()=>{
   if(j.platform==="Instagram" && !(j.source||{}).hdr_available){
    $("note").textContent += " 请注意：当前认证状态或源站返回结果不包含 HDR；不要把本次文件当作 HDR。";
   }
-  $("result").classList.remove("hidden"); status("解析成功。已列出最高画质及可用分辨率。 ");
- }catch(e){status(e.message,true)}finally{$("resolve").disabled=false}
+  $("result").classList.remove("hidden"); status("解析成功。已列出最高画质及可用分辨率。");
+ }catch(e){status(e.message||"解析失败，请重试。",true)}finally{$("resolve").disabled=false}
 };
 $("download").onclick=()=>{
- if(!data)return;
- const quality=encodeURIComponent($("formats").value);
- const outputMode=encodeURIComponent($("outputMode").value);
- const url=encodeURIComponent(currentUrl);
+ if(!data || !currentUrl){status("请先成功解析 Instagram 视频，再点击下载。",true);return}
+ const params=new URLSearchParams({
+  url:currentUrl,
+  quality:$("formats").value||"best",
+  output_mode:$("outputMode").value||"ios"
+ });
+ const downloadUrl=`/api/download-file?${params.toString()}`;
  const button=$("download");
  button.disabled=true;
- button.textContent="正在转换，请勿重复点击…";
- status($("outputMode").value==="source"?"正在下载源流版本，服务器不会执行 iPhone 兼容转码；部分编码可能无法在 iPhone 相册播放。":"服务器正在生成 iPhone 兼容 MP4（必要时重新编码）。此过程可能需要 1–3 分钟，请保持页面打开。");
- // Native attachment response avoids buffering the whole video in a JS Blob.
- window.location.href=`/api/download-file?url=${url}&quality=${quality}&output_mode=${outputMode}`;
+ button.textContent="下载请求已发送…";
+ const mode=$("outputMode").value==="source"?"正在准备源流文件。":"服务器正在生成 iPhone 兼容 MP4（必要时重新编码），大文件可能需要几分钟。";
+ status(mode+" 如果没有自动开始，请点击下面的备用下载链接。");
+ // Open the attachment in a separate browsing context so the result page remains visible on iPhone.
+ let fallback=$("manualDownload");
+ if(!fallback){
+  fallback=document.createElement("a");
+  fallback.id="manualDownload";
+  fallback.className="download-fallback";
+  fallback.target="_blank";
+  fallback.rel="noopener";
+  fallback.style.cssText="display:inline-block;margin-top:12px;padding:10px 14px;border:1px solid #b7f36b;border-radius:10px;color:#b7f36b;text-decoration:none;font-weight:600";
+  $("status").appendChild(document.createElement("br"));
+  $("status").appendChild(fallback);
+ }
+ fallback.href=downloadUrl;
+ fallback.textContent="手动开始下载";
+ fallback.hidden=false;
+ const launcher=document.createElement("a");
+ launcher.href=downloadUrl;
+ launcher.target="_blank";
+ launcher.rel="noopener";
+ launcher.style.display="none";
+ document.body.appendChild(launcher);
+ launcher.click();
+ launcher.remove();
 };
