@@ -416,8 +416,11 @@ def editor_export(
     trim_start: float = Form(0),
     trim_end: float = Form(0),
     keep_original_audio: bool = Form(True),
+    rights_confirm: bool = Form(False),
 ):
     """Small, single-clip mobile editor export. Files are temporary and removed after response."""
+    if not rights_confirm:
+        raise HTTPException(403, "导出前请确认素材由你创作、已获明确授权，或有其他适用的合法使用依据。")
     if trim_start < 0 or trim_end < 0 or trim_start > 3600 or trim_end > 3600:
         raise HTTPException(400, "剪辑时间无效。")
     if not video.filename:
@@ -438,10 +441,16 @@ def editor_export(
         job_dir.mkdir(parents=True, exist_ok=True)
         input_path = job_dir / "source" / ("input" + Path(video.filename).suffix.lower())
         input_path.parent.mkdir(parents=True, exist_ok=True)
+        video_size = 0
         with input_path.open("wb") as dst:
-            shutil.copyfileobj(video.file, dst)
-        if input_path.stat().st_size > 300 * 1024 * 1024:
-            raise HTTPException(413, "单个视频最大支持 300 MB；请先压缩或缩短素材。")
+            while True:
+                chunk = video.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                video_size += len(chunk)
+                if video_size > 300 * 1024 * 1024:
+                    raise HTTPException(413, "单个视频最大支持 300 MB；请先压缩或缩短素材。")
+                dst.write(chunk)
 
         probe = subprocess.run(
             ["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(input_path)],
@@ -468,17 +477,29 @@ def editor_export(
         subtitle_path = None
         if narration and narration.filename:
             audio_path = job_dir / ("voice" + Path(narration.filename).suffix.lower())
+            audio_size = 0
             with audio_path.open("wb") as dst:
-                shutil.copyfileobj(narration.file, dst)
-            if audio_path.stat().st_size > 100 * 1024 * 1024:
-                raise HTTPException(413, "配音文件最大支持 100 MB。")
+                while True:
+                    chunk = narration.file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    audio_size += len(chunk)
+                    if audio_size > 100 * 1024 * 1024:
+                        raise HTTPException(413, "配音文件最大支持 100 MB。")
+                    dst.write(chunk)
             command += ["-i", str(audio_path)]
         if subtitles and subtitles.filename:
             subtitle_path = job_dir / "captions.srt"
+            subtitle_size = 0
             with subtitle_path.open("wb") as dst:
-                shutil.copyfileobj(subtitles.file, dst)
-            if subtitle_path.stat().st_size > 5 * 1024 * 1024:
-                raise HTTPException(413, "字幕文件最大支持 5 MB。")
+                while True:
+                    chunk = subtitles.file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    subtitle_size += len(chunk)
+                    if subtitle_size > 5 * 1024 * 1024:
+                        raise HTTPException(413, "字幕文件最大支持 5 MB。")
+                    dst.write(chunk)
             command += ["-i", str(subtitle_path)]
 
         command += ["-t", str(end - start), "-map", "0:v:0"]
