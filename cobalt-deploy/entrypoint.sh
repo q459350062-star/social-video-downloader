@@ -48,8 +48,16 @@ Promise.all([probe(4), probe(6)]).then(() => process.exit(0));
 '
 
 # The generator requires a virtual display because it runs Chromium with a real browser context.
-Xvfb :99 -ac -screen 0 1280x720x16 -nolisten tcp >/tmp/yt-session-xvfb.log 2>&1 &
+Xvfb :99 -ac -screen 0 1280x720x16 -nolisten tcp &
+XVFB_PID=$!
 export DISPLAY=:99
+XVFB_READY=0
+for attempt in $(seq 1 20); do
+  if [ -S /tmp/.X11-unix/X99 ]; then XVFB_READY=1; break; fi
+  if ! kill -0 "$XVFB_PID" 2>/dev/null; then break; fi
+  sleep 0.25
+done
+echo "[yt-session] xvfb_ready=$XVFB_READY"
 # Keep the generator supervised: nodriver/Chromium can fail transiently on startup.
 # Restart every 3 seconds and remove orphaned browser processes between attempts.
 (
