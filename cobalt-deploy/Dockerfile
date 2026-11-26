@@ -2,7 +2,9 @@ FROM node:24-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache git python3 alpine-sdk
 RUN corepack enable
-RUN git clone --depth 1 https://github.com/imputnet/cobalt.git .
+RUN git clone --no-checkout --depth 1 https://github.com/Rexarrior/cobalt.git . \
+    && git fetch --depth 1 origin 2e8c384defaefa381bbdd51053ee0a7ebca2ee2a \
+    && git checkout --detach 2e8c384defaefa381bbdd51053ee0a7ebca2ee2a
 RUN pnpm install --prod --frozen-lockfile
 RUN pnpm deploy --filter=@imput/cobalt-api --prod /prod/api
 
