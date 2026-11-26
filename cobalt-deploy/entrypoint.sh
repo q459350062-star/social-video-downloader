@@ -15,6 +15,7 @@ export API_PORT="${PORT:-9000}"
 export YOUTUBE_SESSION_SERVER="http://127.0.0.1:8080/"
 export YOUTUBE_SESSION_INNERTUBE_CLIENT="WEB_EMBEDDED"
 export YOUTUBE_ALLOW_BETTER_AUDIO="0"
+export PYTHONUNBUFFERED=1
 
 # Compare YouTube reachability over IPv4 and IPv6 from the actual runtime container.
 node -e '
@@ -49,7 +50,7 @@ Promise.all([probe(4), probe(6)]).then(() => process.exit(0));
 # The generator requires a virtual display because it runs Chromium with a real browser context.
 Xvfb :99 -ac -screen 0 1280x720x16 -nolisten tcp >/tmp/yt-session-xvfb.log 2>&1 &
 export DISPLAY=:99
-/opt/yt-session-venv/bin/python /app/yt-session-generator/potoken-generator.py --port 8080 --bind 127.0.0.1 >/tmp/yt-session-generator.log 2>&1 &
+/opt/yt-session-venv/bin/python /app/yt-session-generator/potoken-generator.py --port 8080 --bind 127.0.0.1 &
 SESSION_PID=$!
 
 # Wait briefly for the first valid token; keep Cobalt available if YouTube blocks token creation.
