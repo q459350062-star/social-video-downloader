@@ -25,19 +25,15 @@ if [ -n "$PROXY_URL" ]; then
     *) PROXY_URL="http://$PROXY_URL" ;;
   esac
   export RESIDENTIAL_PROXY_URL="$PROXY_URL"
-  export HTTP_PROXY="$PROXY_URL"
-  export HTTPS_PROXY="$PROXY_URL"
-  export http_proxy="$PROXY_URL"
-  export https_proxy="$PROXY_URL"
-  export NO_PROXY="${NO_PROXY:-localhost,127.0.0.1,::1}"
-  export no_proxy="$NO_PROXY"
-  export YT_SESSION_PROXY="http://127.0.0.1:3128"
+  # Both Cobalt's Node fetches and Chromium use the same local HTTP bridge.
+  # The bridge handles the upstream SOCKS5 username/password authentication.
+  export YOUTUBE_PROXY_URL="http://127.0.0.1:3128"
+  export YT_SESSION_PROXY="$YOUTUBE_PROXY_URL"
 
-  # Chrome cannot authenticate to an upstream proxy directly; bridge it locally.
   node /app/proxy-bridge.mjs &
   PROXY_PID=$!
   sleep 1
-  if kill -0 "$PROXY_PID" 2>/dev/null; then
+  if kill -0 "$PROXY_PID" 2>/dev/null && node /app/proxy-check.mjs; then
     export YOUTUBE_SESSION_SERVER="http://127.0.0.1:8080/get_pot"
     export YOUTUBE_SESSION_INNERTUBE_CLIENT="WEB_EMBEDDED"
 
@@ -79,7 +75,8 @@ if [ -n "$PROXY_URL" ]; then
     echo "[yt-session] initial_token_ready=$TOKEN_READY"
   else
     echo "[proxy-bridge] failed to start; disabling YouTube session generator"
-    unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy YT_SESSION_PROXY
+    kill "$PROXY_PID" 2>/dev/null || true
+    unset YOUTUBE_PROXY_URL YT_SESSION_PROXY
     unset YOUTUBE_SESSION_SERVER YOUTUBE_SESSION_INNERTUBE_CLIENT
   fi
 else
