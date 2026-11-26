@@ -13,10 +13,13 @@ class Mp4ContainerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             source = Path(temp) / "already.mp4"
             source.write_bytes(b"mp4")
-            with patch("app.mp4.subprocess.run") as run:
+            with patch("app.mp4.subprocess.run", return_value=SimpleNamespace(stdout=json.dumps({
+                "streams": [{"codec_type": "video", "codec_name": "h264"},
+                            {"codec_type": "audio", "codec_name": "aac"}]
+            }))) as run:
                 result = ensure_mp4_container(source)
             self.assertEqual(result, source)
-            run.assert_not_called()
+            run.assert_called_once()
 
     def test_vp9_mp4_is_transcoded_to_h264_even_when_container_is_mp4(self):
         with tempfile.TemporaryDirectory() as temp:
