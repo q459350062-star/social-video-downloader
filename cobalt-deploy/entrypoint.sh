@@ -77,12 +77,12 @@ SESSION_PID=$!
 
 # Wait briefly for the first valid token; keep Cobalt available if YouTube blocks token creation.
 TOKEN_READY=0
-for attempt in $(seq 1 10); do
-  if /opt/yt-session-venv/bin/python -c 'import json,urllib.request; d=json.load(urllib.request.urlopen("http://127.0.0.1:8080/token", timeout=2)); assert len(d.get("potoken", "")) >= 160 and d.get("visitor_data")' >/dev/null 2>&1; then
+for attempt in $(seq 1 5); do
+  if /opt/yt-session-venv/bin/python -c 'import json,urllib.request; d=json.load(urllib.request.urlopen("http://127.0.0.1:8080/token", timeout=1)); assert len(d.get("potoken", "")) >= 160 and d.get("visitor_data")' >/dev/null 2>&1; then
     TOKEN_READY=1
     break
   fi
-  sleep 2
+  sleep 1
 done
 echo "[yt-session] initial_token_ready=$TOKEN_READY"
 
