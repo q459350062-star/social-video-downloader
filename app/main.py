@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
 from .checksums import calculate_file_hashes
+from .media_limits import validate_enhancement_limits
 from .runtime import (
     DOWNLOAD_ROOT, DOWNLOAD_LOCK, cleanup_job_dir, cleanup_stale_jobs, create_job_dir,
 )
@@ -1042,6 +1043,18 @@ def editor_export(
             requested_fps > 0 and source_fps > 0
             and source_fps < requested_fps - 0.5
         )
+        try:
+            validate_enhancement_limits(
+                width=int(video_stream.get("width") or 0),
+                height=int(video_stream.get("height") or 0),
+                duration=end - start,
+                upscale_to=upscale_to,
+                target_fps=requested_fps,
+                source_fps=source_fps,
+                interpolate=interpolate_fps,
+            )
+        except ValueError as exc:
+            raise HTTPException(413, str(exc))
         # Interpolate before scaling so motion estimation works on the smaller source
         # frames. Clone a short boundary at both ends so MCI has enough context, then
         # trim to the exact target frame count to avoid dropping the final frames.
