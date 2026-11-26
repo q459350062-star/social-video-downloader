@@ -10,6 +10,11 @@ export API_KEY_URL="file:///tmp/keys.json"
 export API_AUTH_REQUIRED=1
 export API_LISTEN_ADDRESS="0.0.0.0"
 export API_PORT="${PORT:-9000}"
+# Generate YouTube's session-bound PO token from the same outbound IP as Cobalt.
+# Cobalt 11.7.1 calls POST /get_pot; the bundled generator includes this compatibility route.
+export YOUTUBE_SESSION_SERVER="http://127.0.0.1:8080/"
+export YOUTUBE_SESSION_INNERTUBE_CLIENT="WEB_EMBEDDED"
+export YOUTUBE_ALLOW_BETTER_AUDIO="0"
 
 # Compare YouTube reachability over IPv4 and IPv6 from the actual runtime container.
 node -e '
@@ -41,4 +46,27 @@ async function probe(family) {
 Promise.all([probe(4), probe(6)]).then(() => process.exit(0));
 '
 
-exec node /app/src/cobalt
+# The generator requires a virtual display because it runs Chromium with a real browser context.
+Xvfb :99 -ac -screen 0 1280x720x16 -nolisten tcp >/tmp/yt-session-xvfb.log 2>&1 &
+export DISPLAY=:99
+/opt/yt-session-venv/bin/python /app/yt-session-generator/potoken-generator.py --port 8080 --bind 127.0.0.1 >/tmp/yt-session-generator.log 2>&1 &
+SESSION_PID=$!
+
+# Wait briefly for the first valid token; keep Cobalt available if YouTube blocks token creation.
+TOKEN_READY=0
+for attempt in $(seq 1 90); do
+  if /opt/yt-session-venv/bin/python -c 'import json,urllib.request; d=json.load(urllib.request.urlopen("http://127.0.0.1:8080/token", timeout=2)); assert len(d.get("potoken", "")) >= 160 and d.get("visitor_data")' >/dev/null 2>&1; then
+    TOKEN_READY=1
+    break
+  fi
+  if ! kill -0 "$SESSION_PID" 2>/dev/null; then
+    echo "[yt-session] generator exited before a token was ready"
+    break
+  fi
+  sleep 2
+done
+echo "[yt-session] initial_token_ready=$TOKEN_READY"
+
+# Run the public API as the unprivileged node user; Chromium stays under the
+# root account as required by the upstream session-generator Docker instructions.
+exec su-exec node node /app/src/cobalt
