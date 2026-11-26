@@ -649,16 +649,17 @@ def download(req: DownloadRequest):
             f"best[height<={int(req.quality.split(chr(58), 1)[1])}][dynamic_range=SDR]"
         )
     elif req.quality == "best":
-        selector = (
-            "bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
-            "best[ext=mp4][vcodec^=avc1]/bestvideo+bestaudio/best"
-        )
+        # Quality-first: do not force H.264/MP4 at extraction time. That can silently
+        # downgrade 4K/60fps/HDR sources when a platform offers AV1/VP9/HEVC.
+        # The post-download probe decides whether a compatibility transcode is needed.
+        selector = "bestvideo+bestaudio/best"
     else:
         height = int(req.quality.split(":", 1)[1])
+        # Keep the requested resolution ceiling, but choose the best source codec/bitrate
+        # within it instead of preferring a lower-resolution H.264 rendition.
         selector = (
-            f"bestvideo[height<={height}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
-            f"best[height<={height}][ext=mp4][vcodec^=avc1]/"
-            f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
+            f"bestvideo[height<={height}]+bestaudio/"
+            f"best[height<={height}]/best"
         )
 
     job_dir = None
@@ -668,9 +669,8 @@ def download(req: DownloadRequest):
             opts = ydl_options(cookiefile if is_instagram else None)
             opts.update({
                 "format": selector,
-                # Prefer HDR formats before resolution/codec when the extractor exposes dynamic_range.
-                "format_sort": ["res", "fps", "tbr", "vcodec"],
-                "format_sort_force": True,
+                # Use yt-dlp's maintained quality ordering (resolution, fps, HDR,
+                # codec and bitrate) rather than forcing an incomplete custom sort.
                 "outtmpl": str(job_dir / "%(title).80s-%(id)s.%(ext)s"),
                 "max_filesize": MAX_FILE_MB * 1024 * 1024,
                 "overwrites": True,
