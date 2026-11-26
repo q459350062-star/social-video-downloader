@@ -426,33 +426,63 @@ def has_4k60(info: dict, sdr_only: bool = False) -> bool:
 
 
 def format_metadata(info: dict) -> dict:
-    formats = [f for f in info.get("formats", []) if f.get("vcodec") not in (None, "none")]
-    formats.sort(
-        key=lambda f: (
-            min(f.get("width") or 0, f.get("height") or 0),
-            max(f.get("width") or 0, f.get("height") or 0),
-            f.get("fps") or 0,
-            bool(f.get("dynamic_range") and str(f.get("dynamic_range")).upper() != "SDR"),
-        ),
-        reverse=True,
-    )
-    best = formats[0] if formats else {}
+    formats = [
+        item for item in info.get("formats", [])
+        if item.get("vcodec") not in (None, "none")
+    ]
+
+    def quality_rank(item: dict) -> tuple:
+        width = int(item.get("width") or 0)
+        height = int(item.get("height") or 0)
+        fps = float(item.get("fps") or 0)
+        bitrate = float(item.get("vbr") or item.get("tbr") or 0)
+        dynamic_range = str(item.get("dynamic_range") or "").upper()
+        codec = str(item.get("vcodec") or "").lower()
+        # Resolution and frame rate lead; HDR, measured bitrate and codec efficiency
+        # only break ties. Never let a codec label alone outrank a larger rendition.
+        codec_rank = (
+            5 if codec.startswith("av01") else
+            4 if codec.startswith("vp9") else
+            3 if codec.startswith(("hevc", "h265")) else
+            2 if codec.startswith("avc1") else 1
+        )
+        return (
+            min(width, height), max(width, height), fps,
+            dynamic_range not in ("", "SDR"), bitrate, codec_rank,
+        )
+
+    best = max(formats, key=quality_rank, default={})
     hdr_values = sorted({
-        str(f.get("dynamic_range")) for f in formats
-        if f.get("dynamic_range") and str(f.get("dynamic_range")).upper() != "SDR"
+        str(item.get("dynamic_range")) for item in formats
+        if item.get("dynamic_range") and str(item.get("dynamic_range")).upper() != "SDR"
     })
     codecs = sorted({
-        str(f.get("vcodec")).split(".")[0] for f in formats
-        if f.get("vcodec") not in (None, "none")
+        str(item.get("vcodec")).split(".")[0] for item in formats
+        if item.get("vcodec") not in (None, "none")
     })
-    known_ranges = {str(f.get("dynamic_range")).upper() for f in formats if f.get("dynamic_range")}
-    hdr_status = "HDR可用" if hdr_values else ("仅报告SDR" if known_ranges and known_ranges <= {"SDR"} else "源站未提供明确HDR标记")
+    known_ranges = {
+        str(item.get("dynamic_range")).upper()
+        for item in formats if item.get("dynamic_range")
+    }
+    hdr_status = (
+        "HDR可用" if hdr_values else
+        "仅报告SDR" if known_ranges and known_ranges <= {"SDR"} else
+        "源站未提供明确HDR标记"
+    )
+    max_fps = max((float(item.get("fps") or 0) for item in formats), default=0) or None
+    max_bitrate = max(
+        (float(item.get("vbr") or item.get("tbr") or 0) for item in formats),
+        default=0,
+    ) or None
+    width, height = int(best.get("width") or 0), int(best.get("height") or 0)
     return {
-        "max_resolution": f"{best.get('width')}×{best.get('height')}" if best.get("width") and best.get("height") else (f"最高 {best.get('height')}P" if best.get("height") else "平台未提供分辨率信息"),
-        "max_fps": best.get("fps"),
-        "video_codecs": codecs,
+        "max_resolution": f"{width}×{height}" if width and height else (f"最高 {height}P" if height else "平台未提供分辨率信息"),
+        "max_fps": max_fps,
+        "max_video_bitrate_kbps": round(max_bitrate, 1) if max_bitrate else None,
         "best_video_codec": str(best.get("vcodec") or "").split(".")[0] or None,
         "best_dynamic_range": best.get("dynamic_range"),
+        "video_codecs": codecs,
+        "format_count": len(formats),
         "hdr": hdr_values,
         "hdr_available": bool(hdr_values),
         "hdr_status": hdr_status,
