@@ -189,6 +189,8 @@ server.on("connect", async (req, clientSocket, head) => {
 
     clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
     if (head?.length) upstreamSocket.write(head);
+    clientSocket.on("error", () => upstreamSocket.destroy());
+    upstreamSocket.on("error", () => clientSocket.destroy());
     upstreamSocket.pipe(clientSocket);
     clientSocket.pipe(upstreamSocket);
   } catch (error) {
