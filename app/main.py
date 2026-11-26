@@ -104,6 +104,14 @@ def ydl_options(cookiefile=None):
         "extractor_retries": 2,
         "nocheckcertificate": False,
         "cachedir": False,
+        # YouTube currently benefits from mweb plus a BgUtils-generated PO token.
+        # The provider script runs locally through Deno; no public token endpoint is exposed.
+        "extractor_args": {
+            "youtube": {"player_client": ["mweb", "tv", "web_safari"]},
+            "youtubepot-bgutilscript": {
+                "server_home": "/app/bgutil-ytdlp-pot-provider/server"
+            },
+        },
     }
     if cookiefile:
         options["cookiefile"] = cookiefile
