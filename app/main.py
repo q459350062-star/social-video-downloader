@@ -9,7 +9,7 @@ import tempfile
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
@@ -44,20 +44,25 @@ app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 
 
 def _youtube_startup_smoke_test():
-    """Run a one-time, non-downloading YouTube extraction test after each deploy."""
-    test_url = "https://www.youtube.com/shorts/FgBo1KlkQQk"
+    """Run non-downloading yt-dlp and Cobalt API smoke tests for all four platforms."""
+    test_urls = {
+        "YouTube": "https://youtube.com/shorts/FgBo1KlkQQk",
+        "Instagram": "https://www.instagram.com/reel/DFQe23tOWKz/",
+        "Facebook": "https://www.facebook.com/watch/?v=883839773514682&ref=sharing",
+        "TikTok": "https://www.tiktok.com/@fatfatmillycat/video/7195741644585454894",
+    }
+    youtube_url = test_urls["YouTube"]
     try:
         options = ydl_options()
         options.update({"verbose": True, "quiet": False, "no_warnings": False})
-        logger.info("YOUTUBE_SELF_TEST_START url=%s", test_url)
+        logger.info("YOUTUBE_SELF_TEST_START url=%s", youtube_url)
         with yt_dlp.YoutubeDL(options) as ydl:
-            info = ydl.extract_info(test_url, download=False)
+            info = ydl.extract_info(youtube_url, download=False)
         if not info:
             raise RuntimeError("yt-dlp returned no video metadata")
         logger.info(
-            "YOUTUBE_SELF_TEST_PASS id=%s title=%s formats=%s max_height=%s max_fps=%s",
-            info.get("id"), (info.get("title") or "")[:120],
-            len(info.get("formats") or []), max(
+            "YOUTUBE_SELF_TEST_PASS id=%s formats=%s max_height=%s max_fps=%s",
+            info.get("id"), len(info.get("formats") or []), max(
                 (int(item.get("height") or 0) for item in info.get("formats") or []),
                 default=0,
             ), max(
@@ -67,16 +72,22 @@ def _youtube_startup_smoke_test():
         )
     except Exception:
         logger.exception("YOUTUBE_SELF_TEST_FAIL")
-        if cobalt_is_configured():
-            try:
-                cobalt_result = cobalt_api_request(test_url, output_mode="ios", quality="best")
-                logger.info(
-                    "COBALT_SELF_TEST_PASS status=%s filename=%s",
-                    cobalt_result.get("status"),
-                    str(cobalt_result.get("filename") or "")[:120],
-                )
-            except Exception:
-                logger.exception("COBALT_SELF_TEST_FAIL")
+
+    if not cobalt_is_configured():
+        logger.warning("COBALT_PLATFORM_TEST_SKIPPED reason=missing_server_side_configuration")
+        return
+
+    for platform, test_url in test_urls.items():
+        try:
+            result = cobalt_api_request(test_url, output_mode="ios", quality="height:720")
+            logger.info(
+                "COBALT_PLATFORM_TEST_PASS platform=%s status=%s filename=%s",
+                platform, result.get("status"),
+                str(result.get("filename") or (result.get("output") or {}).get("filename") or "")[:100],
+            )
+        except Exception as exc:
+            # Log a concise failure per platform; never log credentials or signed media URLs.
+            logger.warning("COBALT_PLATFORM_TEST_FAIL platform=%s error=%s", platform, str(exc)[:300])
 
 
 @app.on_event("startup")
@@ -211,49 +222,121 @@ def cobalt_api_request(url: str, output_mode: str = "ios", quality: str = "best"
     except HTTPError as exc:
         detail = exc.read(2000).decode("utf-8", errors="replace")
         raise RuntimeError(f"Cobalt API HTTP {exc.code}: {detail[:500]}") from exc
-    if result.get("status") == "error":
+    status = result.get("status")
+    if status == "error":
         error = result.get("error") or {}
-        raise RuntimeError("Cobalt API error: " + str(error.get("code") or "unknown"))
-    if result.get("status") not in ("tunnel", "redirect") or not result.get("url"):
-        raise RuntimeError("Cobalt returned an unsupported response status.")
-    return result
+        context = error.get("context") or {}
+        service = context.get("service") or platform_name(url)
+        raise RuntimeError(
+            "Cobalt API error: " + str(error.get("code") or "unknown") + " (service=" + str(service) + ")"
+        )
+    if status in ("tunnel", "redirect") and result.get("url"):
+        return result
+    if status == "local-processing" and result.get("tunnel"):
+        return result
+    if status == "picker" and result.get("picker"):
+        # For single-file download mode, select the first video/GIF item.
+        # Gallery photos are not silently presented as a video download.
+        items = result.get("picker") or []
+        selected = next((item for item in items if item.get("type") in ("video", "gif") and item.get("url")), None)
+        if not selected:
+            raise RuntimeError("Cobalt returned a photo-only picker; no video item is available.")
+        return {
+            **result,
+            "selected_url": selected["url"],
+            "filename": result.get("filename") or ("cobalt_video.mp4" if selected.get("type") == "video" else "cobalt_media.gif"),
+        }
+    raise RuntimeError("Cobalt returned an unsupported response status: " + str(status))
 
 
 def cobalt_download(url: str, job_dir: Path, output_mode: str, quality: str) -> dict:
     result = cobalt_api_request(url, output_mode=output_mode, quality=quality)
-    media_url = result["url"]
-    parsed_media = urlparse(media_url)
-    cobalt_host = urlparse(os.getenv("COBALT_API_URL", "")).netloc
-    headers = {"User-Agent": "SocialVideoDownloader/1.0"}
-    if parsed_media.netloc == cobalt_host:
-        headers["Authorization"] = "Api-Key " + os.getenv("COBALT_API_KEY", "").strip()
-    request = Request(media_url, headers=headers)
-    with urlopen(request, timeout=180) as response:
-        suggested = str(result.get("filename") or "video.mp4")
-        filename = Path(suggested.replace("\\", "/")).name
-        filename = re.sub(r"[^0-9A-Za-z._ -]", "_", filename).strip(" .") or "video.mp4"
-        if not Path(filename).suffix:
-            content_type = (response.headers.get("Content-Type") or "").split(";", 1)[0].lower()
-            extension = {
-                "video/mp4": ".mp4",
-                "video/webm": ".webm",
-                "video/x-matroska": ".mkv",
-                "video/quicktime": ".mov",
-            }.get(content_type, ".mp4")
-            filename += extension
-        output_path = job_dir / filename
-        total = 0
-        with output_path.open("wb") as destination:
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > MAX_FILE_MB * 1024 * 1024:
-                    raise HTTPException(413, "文件超过当前服务大小限制。")
-                destination.write(chunk)
-    if not output_path.exists() or output_path.stat().st_size == 0:
-        raise RuntimeError("Cobalt returned an empty media file.")
+    base_url = os.getenv("COBALT_API_URL", "").strip().rstrip("/")
+    cobalt_host = urlparse(base_url).netloc
+
+    def fetch_to_file(media_url: str, filename_hint: str) -> Path:
+        absolute_url = urljoin(base_url + "/", media_url)
+        parsed_media = urlparse(absolute_url)
+        headers = {"User-Agent": "SocialVideoDownloader/1.0"}
+        if parsed_media.netloc == cobalt_host:
+            headers["Authorization"] = "Api-Key " + os.getenv("COBALT_API_KEY", "").strip()
+        request = Request(absolute_url, headers=headers)
+        with urlopen(request, timeout=180) as response:
+            suggested = Path(str(filename_hint or "video.mp4").replace("\\", "/")).name
+            filename = re.sub(r"[^0-9A-Za-z._ -]", "_", suggested).strip(" .") or "video.mp4"
+            if not Path(filename).suffix:
+                content_type = (response.headers.get("Content-Type") or "").split(";", 1)[0].lower()
+                extension = {
+                    "video/mp4": ".mp4",
+                    "video/webm": ".webm",
+                    "video/x-matroska": ".mkv",
+                    "video/quicktime": ".mov",
+                    "image/jpeg": ".jpg",
+                    "image/png": ".png",
+                    "image/gif": ".gif",
+                }.get(content_type, ".mp4")
+                filename += extension
+            output_path = job_dir / filename
+            total = 0
+            with output_path.open("wb") as destination:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > MAX_FILE_MB * 1024 * 1024:
+                        raise HTTPException(413, "文件超过当前服务大小限制。")
+                    destination.write(chunk)
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            raise RuntimeError("Cobalt returned an empty media file.")
+        return output_path
+
+    status = result.get("status")
+    if status in ("tunnel", "redirect"):
+        output_path = fetch_to_file(result["url"], result.get("filename") or "video.mp4")
+    elif status == "picker":
+        output_path = fetch_to_file(
+            result["selected_url"],
+            result.get("filename") or "cobalt_video.mp4",
+        )
+    elif status == "local-processing":
+        tunnels = result.get("tunnel") or []
+        if not tunnels:
+            raise RuntimeError("Cobalt local-processing response contained no tunnels.")
+        output_info = result.get("output") or {}
+        output_name = output_info.get("filename") or "cobalt-output.mp4"
+        downloaded_parts = [
+            fetch_to_file(tunnel_url, f"cobalt-part-{index}.mp4")
+            for index, tunnel_url in enumerate(tunnels)
+        ]
+        if len(downloaded_parts) == 1:
+            output_path = job_dir / Path(output_name).name
+            if output_path.exists():
+                output_path.unlink()
+            downloaded_parts[0].replace(output_path)
+        else:
+            output_path = job_dir / Path(output_name).name
+            if not output_path.suffix:
+                output_path = output_path.with_suffix(".mp4")
+            command = [
+                "ffmpeg", "-y", "-threads", "1",
+                "-i", str(downloaded_parts[0]), "-i", str(downloaded_parts[1]),
+                "-map", "0:v:0", "-map", "1:a:0?",
+                "-c", "copy", "-movflags", "+faststart", str(output_path),
+            ]
+            try:
+                subprocess.run(command, capture_output=True, text=True, timeout=600, check=True)
+            except subprocess.CalledProcessError as exc:
+                logger.error("Cobalt local merge failed stderr=%s", (exc.stderr or "")[-2500:])
+                raise RuntimeError("Cobalt local-processing merge failed.") from exc
+            for part in downloaded_parts:
+                try:
+                    part.unlink()
+                except OSError:
+                    pass
+    else:
+        raise RuntimeError("Cobalt returned unsupported download status: " + str(status))
+
     return {
         "id": "cobalt",
         "title": Path(output_path.name).stem,
@@ -261,7 +344,6 @@ def cobalt_download(url: str, job_dir: Path, output_mode: str, quality: str) -> 
         "requested_formats": [],
         "webpage_url": url,
     }
-
 
 def get_video_heights(info: dict) -> list[int]:
     heights = {
