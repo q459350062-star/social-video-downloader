@@ -209,8 +209,10 @@ def cobalt_api_request(url: str, output_mode: str = "ios", quality: str = "best"
         "filenameStyle": "pretty",
     }
     if platform_name(url) == "YouTube":
+        # Keep the requested source codec/quality, but always ask Cobalt for an MP4
+        # container. The download pipeline below also remuxes any non-MP4 response.
         if output_mode == "source":
-            payload.update({"youtubeVideoCodec": "av1", "youtubeVideoContainer": "webm"})
+            payload.update({"youtubeVideoCodec": "av1", "youtubeVideoContainer": "mp4"})
         else:
             payload.update({"youtubeVideoCodec": "h264", "youtubeVideoContainer": "mp4"})
     request = Request(
@@ -351,6 +353,71 @@ def cobalt_download(url: str, job_dir: Path, output_mode: str, quality: str) -> 
         "requested_formats": [],
         "webpage_url": url,
     }
+
+def ensure_mp4_container(path: Path) -> Path:
+    """Return an MP4 container without re-encoding compatible video streams.
+
+    MKV/WebM is not a usable final format for this mobile downloader. Remux video
+    losslessly; only transcode audio when the source audio codec is not suitable
+    for a broadly compatible MP4/iPhone file.
+    """
+    if path.suffix.lower() == ".mp4":
+        return path
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(path)],
+        capture_output=True, text=True, timeout=30, check=True,
+    )
+    streams = json.loads(probe.stdout).get("streams", [])
+    video_stream = next((item for item in streams if item.get("codec_type") == "video"), None)
+    if not video_stream:
+        raise HTTPException(422, "下载文件没有视频画面轨道，无法封装为 MP4。")
+
+    audio_stream = next((item for item in streams if item.get("codec_type") == "audio"), None)
+    audio_codec = (audio_stream.get("codec_name") or "").lower() if audio_stream else ""
+    output_path = path.with_name(path.stem + "-mp4.mp4")
+    command = [
+        "ffmpeg", "-y", "-threads", "1", "-i", str(path),
+        "-map", "0:v:0", "-map", "0:a?", "-map_metadata", "0",
+        "-c:v", "copy",
+    ]
+    if (video_stream.get("codec_name") or "").lower() in ("hevc", "h265"):
+        command += ["-tag:v", "hvc1"]
+    if audio_stream and audio_codec not in ("aac", "alac", "mp3", "ac3", "eac3"):
+        command += ["-c:a", "aac", "-b:a", "192k"]
+    else:
+        command += ["-c:a", "copy"]
+    command += ["-movflags", "+faststart", "-f", "mp4", str(output_path)]
+
+    try:
+        subprocess.run(command, capture_output=True, text=True, timeout=600, check=True)
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            raise RuntimeError("FFmpeg did not create a non-empty MP4 file.")
+        verify = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(output_path)],
+            capture_output=True, text=True, timeout=30, check=True,
+        )
+        verified_streams = json.loads(verify.stdout).get("streams", [])
+        if not any(item.get("codec_type") == "video" for item in verified_streams):
+            raise RuntimeError("Remuxed MP4 has no video stream.")
+    except (subprocess.CalledProcessError, RuntimeError, ValueError) as exc:
+        try:
+            output_path.unlink()
+        except OSError:
+            pass
+        logger.error("MP4 remux failed source=%s error=%s", path.name, str(exc)[:1000])
+        raise HTTPException(
+            422,
+            "源视频编码无法直接封装为 MP4；原始下载文件未交付，避免产生只有声音或无法播放的文件。",
+        ) from exc
+
+    try:
+        path.unlink()
+    except OSError:
+        logger.warning("Could not remove original non-MP4 temporary file: %s", path.name)
+    logger.info("MP4 remux complete source=%s output=%s", path.name, output_path.name)
+    return output_path
+
 
 def get_video_heights(info: dict) -> list[int]:
     heights = {
@@ -654,7 +721,10 @@ def download(req: DownloadRequest):
                 "outtmpl": str(job_dir / "%(title).80s-%(id)s.%(ext)s"),
                 "max_filesize": MAX_FILE_MB * 1024 * 1024,
                 "overwrites": True,
-                **({"merge_output_format": "mkv"} if req.output_mode == "source" else {}),
+                # Never deliberately emit MKV: source mode keeps the best codec but
+                # uses MP4 as the output container. A post-download remux handles
+                # single-stream WebM/MKV results that bypass yt-dlp's merger.
+                "merge_output_format": "mp4",
             })
             logger.info(
                 "download job %s: starting mode=%s instagram_cookie_auth=%s",
@@ -681,6 +751,7 @@ def download(req: DownloadRequest):
             raise HTTPException(422, "没有生成可下载文件。")
         path = max(candidates, key=lambda p: p.stat().st_size)
         logger.info("download job %s: media file=%s size=%s", job_dir.name, path.name, path.stat().st_size)
+        path = ensure_mp4_container(path)
         if path.stat().st_size > MAX_FILE_MB * 1024 * 1024:
             raise HTTPException(413, "文件超过当前服务大小限制。")
 
