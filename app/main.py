@@ -12,6 +12,7 @@ from urllib.parse import urlparse, urljoin
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
+from .mp4 import ensure_mp4_container
 from .checksums import calculate_file_hashes
 from .media_limits import validate_enhancement_limits
 from .runtime import (
@@ -354,71 +355,6 @@ def cobalt_download(url: str, job_dir: Path, output_mode: str, quality: str) -> 
         "webpage_url": url,
     }
 
-def ensure_mp4_container(path: Path) -> Path:
-    """Return an MP4 container without re-encoding compatible video streams.
-
-    MKV/WebM is not a usable final format for this mobile downloader. Remux video
-    losslessly; only transcode audio when the source audio codec is not suitable
-    for a broadly compatible MP4/iPhone file.
-    """
-    if path.suffix.lower() == ".mp4":
-        return path
-
-    probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(path)],
-        capture_output=True, text=True, timeout=30, check=True,
-    )
-    streams = json.loads(probe.stdout).get("streams", [])
-    video_stream = next((item for item in streams if item.get("codec_type") == "video"), None)
-    if not video_stream:
-        raise HTTPException(422, "下载文件没有视频画面轨道，无法封装为 MP4。")
-
-    audio_stream = next((item for item in streams if item.get("codec_type") == "audio"), None)
-    audio_codec = (audio_stream.get("codec_name") or "").lower() if audio_stream else ""
-    output_path = path.with_name(path.stem + "-mp4.mp4")
-    command = [
-        "ffmpeg", "-y", "-threads", "1", "-i", str(path),
-        "-map", "0:v:0", "-map", "0:a?", "-map_metadata", "0",
-        "-c:v", "copy",
-    ]
-    if (video_stream.get("codec_name") or "").lower() in ("hevc", "h265"):
-        command += ["-tag:v", "hvc1"]
-    if audio_stream and audio_codec not in ("aac", "alac", "mp3", "ac3", "eac3"):
-        command += ["-c:a", "aac", "-b:a", "192k"]
-    else:
-        command += ["-c:a", "copy"]
-    command += ["-movflags", "+faststart", "-f", "mp4", str(output_path)]
-
-    try:
-        subprocess.run(command, capture_output=True, text=True, timeout=600, check=True)
-        if not output_path.exists() or output_path.stat().st_size == 0:
-            raise RuntimeError("FFmpeg did not create a non-empty MP4 file.")
-        verify = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(output_path)],
-            capture_output=True, text=True, timeout=30, check=True,
-        )
-        verified_streams = json.loads(verify.stdout).get("streams", [])
-        if not any(item.get("codec_type") == "video" for item in verified_streams):
-            raise RuntimeError("Remuxed MP4 has no video stream.")
-    except (subprocess.CalledProcessError, RuntimeError, ValueError) as exc:
-        try:
-            output_path.unlink()
-        except OSError:
-            pass
-        logger.error("MP4 remux failed source=%s error=%s", path.name, str(exc)[:1000])
-        raise HTTPException(
-            422,
-            "源视频编码无法直接封装为 MP4；原始下载文件未交付，避免产生只有声音或无法播放的文件。",
-        ) from exc
-
-    try:
-        path.unlink()
-    except OSError:
-        logger.warning("Could not remove original non-MP4 temporary file: %s", path.name)
-    logger.info("MP4 remux complete source=%s output=%s", path.name, output_path.name)
-    return output_path
-
-
 def get_video_heights(info: dict) -> list[int]:
     heights = {
         int(f["height"])
@@ -751,7 +687,10 @@ def download(req: DownloadRequest):
             raise HTTPException(422, "没有生成可下载文件。")
         path = max(candidates, key=lambda p: p.stat().st_size)
         logger.info("download job %s: media file=%s size=%s", job_dir.name, path.name, path.stat().st_size)
-        path = ensure_mp4_container(path)
+        try:
+            path = ensure_mp4_container(path)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
         if path.stat().st_size > MAX_FILE_MB * 1024 * 1024:
             raise HTTPException(413, "文件超过当前服务大小限制。")
 
@@ -1198,45 +1137,3 @@ def editor_export(
             # Copy audio/subtitle streams so they are not re-encoded a second time.
             scale_filter = "scale='if(gte(iw,ih),-2,2160)':'if(gte(iw,ih),2160,-2)':flags=lanczos"
             stage2 = [
-                "ffmpeg", "-y", "-threads", "1", "-filter_threads", "1",
-                "-i", str(stage1_output), "-map", "0", "-vf", scale_filter,
-            ]
-            if is_hdr:
-                stage2 += [
-                    "-c:v", "libx265", "-preset", "ultrafast", "-crf", "20",
-                    "-pix_fmt", "yuv420p10le", "-tag:v", "hvc1", "-threads:v", "1",
-                    "-x265-params", "pools=1:frame-threads=1",
-                    "-color_primaries", video_stream.get("color_primaries", "bt2020"),
-                    "-color_trc", video_stream.get("color_transfer", "smpte2084"),
-                    "-colorspace", video_stream.get("color_space", "bt2020nc"),
-                ]
-            else:
-                stage2 += ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "20",
-                           "-pix_fmt", "yuv420p", "-threads:v", "1"]
-            stage2 += ["-c:a", "copy", "-c:s", "copy", "-movflags", "+faststart", str(output)]
-            logger.info("editor job %s: stage 2/2 upscale 720p intermediate to 4K", job_dir.name)
-            try:
-                subprocess.run(stage2, capture_output=True, text=True, timeout=1800, check=True)
-            except subprocess.CalledProcessError as exc:
-                logger.error("editor job %s: 4K upscale stage failed rc=%s stderr=%s", job_dir.name, exc.returncode, (exc.stderr or "")[-3000:])
-                raise HTTPException(422, "720p/30FPS 阶段已完成，但 4K 放大阶段失败。原始上传文件未修改，请稍后重试。")
-        if not output.exists() or output.stat().st_size == 0:
-            raise HTTPException(422, "没有生成有效的导出文件。")
-        logger.info("editor job %s: export complete size=%s hdr_source=%s staged_4k=%s", job_dir.name, output.stat().st_size, is_hdr, staged_4k_interpolation)
-        return FileResponse(
-            output,
-            filename="VideoDrop-Enhanced.mp4",
-            media_type="video/mp4",
-            background=BackgroundTask(cleanup_job_dir, job_dir),
-        )
-    except HTTPException:
-        if job_dir is not None:
-            cleanup_job_dir(job_dir)
-        raise
-    except Exception:
-        logger.exception("editor job %s: unexpected failure", job_dir.name if job_dir else "unallocated")
-        if job_dir is not None:
-            cleanup_job_dir(job_dir)
-        raise HTTPException(422, "剪辑处理失败，详细原因已记录。")
-    finally:
-        DOWNLOAD_LOCK.release()
