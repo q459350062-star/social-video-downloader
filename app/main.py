@@ -123,7 +123,14 @@ def ydl_options(cookiefile=None):
         # LOGIN_REQUIRED before the PO-token provider is reached. BgUtils HTTP remains
         # available for clients that require GVS tokens; trace token requests in diagnostics.
         "extractor_args": {
-            "youtube": {"pot_trace": ["true"]},
+            # Explicitly request PO tokens for clients that require them. Without
+            # fetch_pot=always, recent YouTube client changes can fail with LOGIN_REQUIRED
+            # before the configured bgutil HTTP provider is asked to mint a token.
+            "youtube": {
+                "pot_trace": ["true"],
+                "player_client": ["default", "mweb", "web_creator"],
+                "fetch_pot": ["always"],
+            },
             "youtubepot-bgutilhttp": {
                 "base_url": "http://127.0.0.1:4416"
             },
