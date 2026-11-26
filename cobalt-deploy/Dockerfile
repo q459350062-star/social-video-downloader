@@ -1,4 +1,4 @@
-FROM node:24-alpine AS build
+FROM node:24-alpine3.22 AS build
 WORKDIR /src
 RUN apk add --no-cache git python3 alpine-sdk
 RUN corepack enable
@@ -10,7 +10,7 @@ RUN python3 -c "from pathlib import Path; p=Path('/src/api/src/core/env.js'); s=
 RUN pnpm install --prod --frozen-lockfile
 RUN pnpm deploy --filter=@imput/cobalt-api --prod /prod/api
 
-FROM node:24-alpine
+FROM node:24-alpine3.22
 WORKDIR /app
 ENV NODE_ENV=production
 RUN apk add --no-cache python3 py3-pip py3-virtualenv chromium xvfb nss freetype harfbuzz ca-certificates ttf-freefont su-exec procps
