@@ -56,6 +56,11 @@ new = """    @staticmethod
 if old not in source:
     raise SystemExit("Expected upstream _click_on_player implementation not found")
 source = source.replace(old, new, 1)
+source = source.replace(
+    "browser = await nodriver.start(headless=False, sandbox=False,",
+    "browser = await nodriver.start(headless=False, sandbox=False, browser_args=['--disable-gpu', '--disable-extensions', '--disable-background-networking', '--disable-sync', '--renderer-process-limit=1'],",
+    1,
+)
 compile(source, str(path), 'exec')
 path.write_text(source)
 print("[yt-session] patched trusted CDP player click")
