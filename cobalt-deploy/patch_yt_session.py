@@ -96,4 +96,20 @@ if old_fetch not in cobalt_source:
     raise SystemExit("Expected Cobalt session fetch implementation not found")
 cobalt_path.write_text(cobalt_source.replace(old_fetch, new_fetch, 1))
 print("[cobalt] patched session HTTP error handling")
+
+# Chromium's CDP payload can omit this newer field on some bundled versions.
+# Treat it as optional so nodriver can continue parsing Network events.
+network_path = Path("/opt/yt-session-venv/lib/python3.12/site-packages/nodriver/cdp/network.py")
+network_source = network_path.read_text()
+old_policy = "local_network_access_request_policy=LocalNetworkAccessRequestPolicy.from_json(json['localNetworkAccessRequestPolicy']),"
+new_policy = "local_network_access_request_policy=LocalNetworkAccessRequestPolicy.from_json(json['localNetworkAccessRequestPolicy']) if json.get('localNetworkAccessRequestPolicy') is not None else None,"
+if old_policy not in network_source:
+    raise SystemExit("Expected nodriver ClientSecurityState parser not found")
+network_path.write_text(network_source.replace(old_policy, new_policy, 1))
+import sys
+sys.path.insert(0, "/opt/yt-session-venv/lib/python3.12/site-packages")
+from nodriver.cdp.network import ClientSecurityState
+state = ClientSecurityState.from_json({"initiatorIsSecureContext": True, "initiatorIPAddressSpace": "Public"})
+assert state.local_network_access_request_policy is None
+print("[nodriver] optional CDP security-state field test passed")
 print("[yt-session] patched player bootstrap and click retries")
