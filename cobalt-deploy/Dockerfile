@@ -18,7 +18,7 @@ COPY --from=build --chown=node:node /prod/api /app
 COPY --from=build --chown=node:node /src/.git /app/.git
 COPY --from=build /src/yt-session-generator /app/yt-session-generator
 RUN python3 -m venv /opt/yt-session-venv \
-    && python3 -c "from pathlib import Path; p=Path('/app/yt-session-generator/requirements.txt'); s=p.read_text(); old='nodriver==0.32'; new='nodriver==0.50.3'; assert old in s; p.write_text(s.replace(old,new))" \
+    && python3 -c "from pathlib import Path; p=Path('/app/yt-session-generator/requirements.txt'); s=p.read_text(); old='nodriver==0.32'; new='nodriver==0.50.3'; assert old in s; s=s.replace(old,new); old_ws='websockets==13.1'; new_ws='websockets>=14,<16'; assert old_ws in s; p.write_text(s.replace(old_ws,new_ws))" \
     && /opt/yt-session-venv/bin/pip install --no-cache-dir -r /app/yt-session-generator/requirements.txt \
     && python3 -c "from pathlib import Path; p=Path('/app/yt-session-generator/potoken_generator/server.py'); s=p.read_text(); old=\"'/token': self.get_potoken,\"; new=\"'/token': self.get_potoken,\\n            '/get_pot': self.get_potoken,\"; assert old in s; p.write_text(s.replace(old,new))" \
     && python3 -c "from pathlib import Path; p=Path('/app/yt-session-generator/potoken_generator/extractor.py'); s=p.read_text(); old=\"logger.info(f'new token: {token_info.to_json()}')\"; new=\"logger.info(f'new token generated: visitor_data_length={len(token_info.visitor_data)} po_token_length={len(token_info.potoken)}')\"; assert old in s; p.write_text(s.replace(old,new))" \
