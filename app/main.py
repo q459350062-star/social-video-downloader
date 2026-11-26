@@ -67,6 +67,16 @@ def _youtube_startup_smoke_test():
         )
     except Exception:
         logger.exception("YOUTUBE_SELF_TEST_FAIL")
+        if cobalt_is_configured():
+            try:
+                cobalt_result = cobalt_api_request(test_url, output_mode="ios", quality="best")
+                logger.info(
+                    "COBALT_SELF_TEST_PASS status=%s filename=%s",
+                    cobalt_result.get("status"),
+                    str(cobalt_result.get("filename") or "")[:120],
+                )
+            except Exception:
+                logger.exception("COBALT_SELF_TEST_FAIL")
 
 
 @app.on_event("startup")
