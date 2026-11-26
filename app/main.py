@@ -306,9 +306,14 @@ def download(req: DownloadRequest):
     # ios = prioritize H.264/AAC for broad iPhone playback.
     is_instagram = platform_name(url) == "Instagram"
     if req.quality == "4k60":
-        four_k60_video = "bestvideo[height>=2160][width>=3840][fps>=59]/bestvideo[width>=2160][height>=3840][fps>=59]"
-        four_k60_pair = f"{four_k60_video}+bestaudio"
-        four_k60_combined = "best[height>=2160][width>=3840][fps>=59]/best[width>=2160][height>=3840][fps>=59]"
+        four_k60_pair = (
+            "bestvideo[height>=2160][width>=3840][fps>=59]+bestaudio/"
+            "bestvideo[width>=2160][height>=3840][fps>=59]+bestaudio"
+        )
+        four_k60_combined = (
+            "best[height>=2160][width>=3840][fps>=59]/"
+            "best[width>=2160][height>=3840][fps>=59]"
+        )
         if req.output_mode == "sdr":
             selector = (
                 "bestvideo[height>=2160][width>=3840][fps>=59][dynamic_range=SDR]+bestaudio/"
