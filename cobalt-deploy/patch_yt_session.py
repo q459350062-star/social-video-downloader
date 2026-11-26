@@ -63,10 +63,10 @@ source = source.replace(old, new, 1)
 source = source.replace(
     "await tab.get('https://www.youtube.com/embed/jNQXAC9IVRw')",
     """await tab.send(cdp.network.enable())
-            await tab.send(cdp.network.set_extra_http_headers(cdp.network.Headers({"Referer": "https://social-video-downloader-6jqk.onrender.com/"})))
-            await tab.get('https://www.youtube.com/embed/jNQXAC9IVRw?autoplay=1&mute=1&playsinline=1&origin=https%3A%2F%2Fsocial-video-downloader-6jqk.onrender.com')
-            state = await tab.evaluate("JSON.stringify({title:document.title,url:location.href,ready:document.readyState,player:!!document.querySelector('#movie_player'),button:!!document.querySelector('.ytp-large-play-button'),video:!!document.querySelector('video'),body:(document.body?.innerText||'').slice(0,240)})")
-            logger.info("YouTube embed state: %s", state)""",
+        await tab.send(cdp.network.set_extra_http_headers(cdp.network.Headers({"Referer": "https://social-video-downloader-6jqk.onrender.com/"})))
+        await tab.get('https://www.youtube.com/embed/jNQXAC9IVRw?autoplay=1&mute=1&playsinline=1&origin=https%3A%2F%2Fsocial-video-downloader-6jqk.onrender.com')
+        state = await tab.evaluate("JSON.stringify({title:document.title,url:location.href,ready:document.readyState,player:!!document.querySelector('#movie_player'),button:!!document.querySelector('.ytp-large-play-button'),video:!!document.querySelector('video'),body:(document.body?.innerText||'').slice(0,240)})")
+        logger.info("YouTube embed state: %s", state)""",
     1,
 )
 source = source.replace(
