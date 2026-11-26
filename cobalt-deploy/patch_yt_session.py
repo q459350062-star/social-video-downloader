@@ -41,9 +41,10 @@ new = """    @staticmethod
                     x = float(x_text)
                     y = float(y_text)
                     await tab.send(cdp.input_.dispatch_mouse_event(type_="mouseMoved", x=x, y=y))
-                    await tab.send(cdp.input_.dispatch_mouse_event(type_="mousePressed", x=x, y=y, button="left", click_count=1))
+                    logger.info("player click coordinates x=%s y=%s", x, y)
+                    await tab.send(cdp.input_.dispatch_mouse_event(type_="mousePressed", x=x, y=y, button=cdp.input_.MouseButton.LEFT, click_count=1))
                     await asyncio.sleep(0.1)
-                    await tab.send(cdp.input_.dispatch_mouse_event(type_="mouseReleased", x=x, y=y, button="left", click_count=1))
+                    await tab.send(cdp.input_.dispatch_mouse_event(type_="mouseReleased", x=x, y=y, button=cdp.input_.MouseButton.LEFT, click_count=1))
                     logger.info('clicked YouTube player using trusted CDP mouse events')
                     return True
             except Exception as exc:
