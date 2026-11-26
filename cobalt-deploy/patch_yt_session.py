@@ -39,7 +39,9 @@ if old not in source:
 source = source.replace(old, new, 1)
 source = source.replace(
     "await tab.get('https://www.youtube.com/embed/jNQXAC9IVRw')",
-    "await tab.get('https://www.youtube.com/embed/jNQXAC9IVRw?autoplay=1&mute=1&playsinline=1')",
+    """await tab.get('https://www.youtube.com/embed/jNQXAC9IVRw?autoplay=1&mute=1&playsinline=1')
+            state = await tab.evaluate("JSON.stringify({title:document.title,url:location.href,ready:document.readyState,player:!!document.querySelector('#movie_player'),button:!!document.querySelector('.ytp-large-play-button'),video:!!document.querySelector('video')})")
+            logger.info("YouTube embed state: %s", state)""",
     1,
 )
 source = source.replace(
