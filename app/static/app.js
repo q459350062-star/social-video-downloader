@@ -6,7 +6,8 @@ function updateDownloadHref(){
  const params=new URLSearchParams({
   url:currentUrl,
   quality:$("formats").value||"best",
-  output_mode:$("outputMode").value||"ios"
+  output_mode:$("outputMode").value||"ios",
+  media_type:$("mediaType").value||"video"
  });
  $("download").href="/api/download-file?"+params.toString();
 }
