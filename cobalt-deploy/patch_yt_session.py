@@ -44,4 +44,4 @@ source = source.replace(
 )
 compile(source, str(path), 'exec')
 path.write_text(source)
-print("[yt-session] patched trusted CDP player click")
+print("[yt-session] patched retrying trusted player element click")
