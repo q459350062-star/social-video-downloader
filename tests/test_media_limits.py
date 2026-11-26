@@ -28,8 +28,10 @@ class EnhancementLimitsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "最多 30 秒"):
             self.validate(duration=31)
 
-    def test_rejects_4k_upscale_and_interpolation_combo(self):
-        with self.assertRaisesRegex(ValueError, "不能安全执行 4K"):
+    def test_helper_requires_staged_4k_interpolation(self):
+        # The route validates each stage independently; the generic limits helper
+        # must reject a combined 4K + interpolation workload if called directly.
+        with self.assertRaisesRegex(ValueError, "分阶段执行"):
             self.validate(upscale_to="2160")
 
     def test_allows_short_4k_upscale_without_interpolation(self):
