@@ -95,6 +95,31 @@ if old_fetch not in cobalt_source:
 cobalt_path.write_text(cobalt_source.replace(old_fetch, new_fetch, 1))
 print("[cobalt] session HTTP error handling patched")
 
+# Route every YouTube API and media request through the same local HTTP bridge
+# used by Chromium, so PO tokens and media requests share one residential IP.
+youtube_path = Path("/app/src/processing/services/youtube.js")
+youtube_source = youtube_path.read_text()
+old_import = 'import { fetch, Request } from "undici";'
+new_import = 'import { fetch, Request, ProxyAgent } from "undici";'
+if old_import not in youtube_source:
+    raise SystemExit("Expected Cobalt YouTube undici import not found")
+youtube_source = youtube_source.replace(old_import, new_import, 1)
+old_period = "const PLAYER_REFRESH_PERIOD = 1000 * 60 * 15; // ms\nlet innertube, lastRefreshedAt;"
+new_period = "const PLAYER_REFRESH_PERIOD = 1000 * 60 * 15; // ms\nconst proxyAgent = process.env.YOUTUBE_PROXY_URL ? new ProxyAgent(process.env.YOUTUBE_PROXY_URL) : undefined;\nlet innertube, lastRefreshedAt;"
+if old_period not in youtube_source:
+    raise SystemExit("Expected Cobalt YouTube refresh declaration not found")
+youtube_source = youtube_source.replace(old_period, new_period, 1)
+old_start = "export default async function (o) {\n    const quality ="
+new_start = "export default async function (o) {\n    o.dispatcher ??= proxyAgent;\n    const quality ="
+if old_start not in youtube_source:
+    raise SystemExit("Expected Cobalt YouTube service entry not found")
+youtube_source = youtube_source.replace(old_start, new_start, 1)
+if "        dispatcher: undefined," not in youtube_source:
+    raise SystemExit("Expected Cobalt media dispatcher override not found")
+youtube_source = youtube_source.replace("        dispatcher: undefined,", "        dispatcher: o.dispatcher,", 1)
+youtube_path.write_text(youtube_source)
+print("[cobalt] YouTube API and media requests use shared residential proxy bridge")
+
 # Chromium may omit this newer CDP field; make the generated parser tolerant.
 network_path = Path("/opt/yt-session-venv/lib/python3.12/site-packages/nodriver/cdp/network.py")
 network_source = network_path.read_text()
