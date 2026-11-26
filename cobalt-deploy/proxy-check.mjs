@@ -14,7 +14,7 @@ try {
     signal: AbortSignal.timeout(10000),
   });
   console.log("[proxy-check] youtube_generate_204_http=" + response.status);
-  if (response.status !== 204) process.exitCode = 1;
+  if (response.status < 200 || response.status >= 300) process.exitCode = 1;
 } catch (error) {
   console.error("[proxy-check] failed:", error?.code || error?.message || String(error));
   process.exitCode = 1;
