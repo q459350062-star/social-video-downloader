@@ -10,6 +10,7 @@ FROM node:24-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build --chown=node:node /prod/api /app
+COPY --from=build --chown=node:node /src/.git /app/.git
 COPY --chown=node:node entrypoint.sh /app/entrypoint.sh
 RUN chmod 755 /app/entrypoint.sh
 USER node
