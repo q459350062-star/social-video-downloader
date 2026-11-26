@@ -49,6 +49,13 @@
    preview.hidden=false;
  });
  form.addEventListener("submit",(event)=>{
+   const sourceVideo=file.files&&file.files[0];
+   const narrationFile=document.getElementById("narration").files[0];
+   const subtitleFile=document.getElementById("subtitles").files[0];
+   if(!sourceVideo){event.preventDefault();alert("请先选择视频文件。");return;}
+   if(sourceVideo.size>300*1024*1024){event.preventDefault();alert("视频文件超过 300 MB，服务器会返回 413。请先压缩或缩短素材后再上传。");return;}
+   if(narrationFile&&narrationFile.size>100*1024*1024){event.preventDefault();alert("配音文件最大支持 100 MB。");return;}
+   if(subtitleFile&&subtitleFile.size>5*1024*1024){event.preventDefault();alert("字幕文件最大支持 5 MB。");return;}
    if(!rights.checked){
      event.preventDefault();
      alert("目前没有原作者授权。请先使用上方评论稿工作区；只有在素材由你创作、已获明确授权或确有其他合法使用依据时，才能确认并导出。");
@@ -86,6 +93,11 @@
    a.remove();
    setTimeout(()=>URL.revokeObjectURL(url),1000);
  });
- metadataForm.addEventListener("submit",()=>{metadataButton.disabled=true;metadataButton.textContent="正在写入元数据，请保持页面打开…";});
+ metadataForm.addEventListener("submit",(event)=>{
+   const selected=document.getElementById("metadata_video").files[0];
+   if(!selected){event.preventDefault();alert("请先选择视频文件。");return;}
+   if(selected.size>300*1024*1024){event.preventDefault();alert("视频文件超过 300 MB，服务器会返回 413。请先压缩或缩短素材后再上传。");return;}
+   metadataButton.disabled=true;metadataButton.textContent="正在写入元数据，请保持页面打开…";
+ });
  window.addEventListener("pagehide",()=>{if(objectUrl)URL.revokeObjectURL(objectUrl);});
 })();
