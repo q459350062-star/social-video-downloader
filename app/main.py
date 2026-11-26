@@ -18,7 +18,7 @@ from .runtime import (
     DOWNLOAD_ROOT, DOWNLOAD_LOCK, cleanup_job_dir, cleanup_stale_jobs, create_job_dir,
 )
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request as FastAPIRequest
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
@@ -41,6 +41,21 @@ MAX_FILE_MB = int(os.getenv("MAX_FILE_MB", "1024"))
 
 app = FastAPI(title="Social Video Downloader", version="1.5.0")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
+
+
+@app.middleware("http")
+async def log_editor_upload_413(request: FastAPIRequest, call_next):
+    if request.url.path not in {"/api/editor/export", "/api/editor/metadata"}:
+        return await call_next(request)
+    content_length = request.headers.get("content-length", "unknown")
+    response = await call_next(request)
+    if response.status_code == 413:
+        logger.warning(
+            "EDITOR_UPLOAD_413 path=%s content_length=%s",
+            request.url.path,
+            content_length,
+        )
+    return response
 
 
 def _youtube_startup_smoke_test():
