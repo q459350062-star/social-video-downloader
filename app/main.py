@@ -1038,10 +1038,14 @@ def editor_export(
         is_hdr = hdr_transfer in ("smpte2084", "arib-std-b67")
         output = job_dir / "edited-enhanced.mp4"
         filters = []
+        interpolate_fps = (
+            requested_fps > 0 and source_fps > 0
+            and source_fps < requested_fps - 0.5
+        )
         # Interpolate before scaling so motion estimation works on the smaller source
         # frames. Clone a short boundary at both ends so MCI has enough context, then
         # trim to the exact target frame count to avoid dropping the final frames.
-        if requested_fps > 0 and source_fps > 0 and source_fps < requested_fps - 0.5:
+        if interpolate_fps:
             pad_seconds = 0.2
             pad_frames = int(round(pad_seconds * requested_fps))
             expected_frames = max(1, int((end - start) * requested_fps + 0.999999))
@@ -1097,6 +1101,8 @@ def editor_export(
             command += ["-i", str(subtitle_path)]
 
         command += ["-t", str(end - start), "-map", "0:v:0"]
+        if interpolate_fps:
+            command += ["-r", f"{requested_fps:g}", "-fps_mode", "cfr"]
         if narration and narration.filename:
             command += ["-map", "1:a:0"]
         elif keep_original_audio:
