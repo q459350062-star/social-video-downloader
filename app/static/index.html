@@ -8,18 +8,18 @@
 </head>
 <body>
 <main class="wrap">
-  <header><div class="logo">▶</div><div><div class="brand">VIDEODROP</div><div class="sub">PUBLIC VIDEO DOWNLOADER</div></div><span class="pill">三平台</span></header>
+  <header><div class="logo">▶</div><div><div class="brand">VIDEODROP</div><div class="sub">PUBLIC VIDEO DOWNLOADER</div></div><span class="pill">四平台</span></header>
   <section class="hero">
-    <div class="eyebrow">TIKTOK · INSTAGRAM · FACEBOOK</div>
+    <div class="eyebrow">TIKTOK · INSTAGRAM · FACEBOOK · YOUTUBE</div>
     <h1>好视频，<span>一贴即下。</span></h1>
     <p>粘贴公开视频链接，自动识别平台并获取可用下载格式。</p>
   </section>
   <p style="margin:-12px 0 22px"><a href="/static/editor.html" style="color:#b7f36b;text-decoration:none;font-size:13px">✂ 打开手机视频剪辑工作台 →</a></p>
   <section class="panel">
     <label for="url">视频链接</label>
-    <div class="inputrow"><input id="url" type="url" placeholder="粘贴 TikTok / Instagram / Facebook 链接" autocomplete="url"><button id="paste" class="paste">粘贴</button></div>
+    <div class="inputrow"><input id="url" type="url" placeholder="粘贴 TikTok / Instagram / Facebook / YouTube 链接" autocomplete="url"><button id="paste" class="paste">粘贴</button></div>
     <button id="resolve" class="primary">解析视频 <span>→</span></button>
-    <div class="platforms"><span>● TikTok</span><span>● Instagram</span><span>● Facebook</span></div>
+    <div class="platforms"><span>● TikTok</span><span>● Instagram</span><span>● Facebook</span><span>● YouTube</span></div>
   </section>
   <section id="status" class="status" aria-live="polite"></section>
   <section id="result" class="result hidden">
@@ -31,7 +31,7 @@
       <option value="ios" selected>iPhone 兼容 MP4（自动确保画面和声音可播放）</option>
     </select>
     <a id="download" class="primary download-link" href="#" role="button">下载视频 <span>↓</span></a>
-    <div class="sourceinfo"><strong>素材来源记录</strong><ul id="provenance"></ul><a id="sourceLink" target="_blank" rel="noopener noreferrer">打开 Instagram 原始帖子</a></div>
+    <div class="sourceinfo"><strong>素材来源记录</strong><ul id="provenance"></ul><a id="sourceLink" target="_blank" rel="noopener noreferrer">打开原始视频页面</a></div>
     <ul class="sourceinfo" id="sourceInfo"></ul><p class="hint" id="note"></p>
     <p class="hint">请仅上传你拥有版权或已取得授权的内容。下载文件不会因此自动获得抖音原创认证。</p>
   </section>
