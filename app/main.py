@@ -36,7 +36,7 @@ ALLOWED_HOSTS = {
 MAX_DURATION = int(os.getenv("MAX_DURATION_SECONDS", "3600"))
 MAX_FILE_MB = int(os.getenv("MAX_FILE_MB", "1024"))
 
-app = FastAPI(title="Social Video Downloader", version="1.4.0")
+app = FastAPI(title="Social Video Downloader", version="1.5.0")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 
 
@@ -275,36 +275,33 @@ def download(req: DownloadRequest):
     url = validate_url(str(req.url))
     if req.quality != "best" and not re.fullmatch(r"height:[0-9]{1,5}", req.quality):
         raise HTTPException(400, "画质选项无效，请重新解析。")
-    if req.output_mode not in ("ios", "source"):
+    if req.output_mode not in ("ios", "source", "sdr"):
         raise HTTPException(400, "输出模式无效，请重新选择。")
     # Queue a second request instead of returning a JSON 429 file to mobile Safari.
     # The free instance runs one worker; wait for the active conversion to release the lock.
     if not DOWNLOAD_LOCK.acquire(timeout=1800):
         raise HTTPException(503, "服务器繁忙，等待转换超时。请返回页面后再试。")
 
-    # Prefer H.264 + AAC for broad iPhone/iOS playback compatibility.
-    # If the source only offers VP9/AV1, the post-download step transcodes it.
+    # source = highest platform-provided streams without re-encoding.
+    # sdr = highest explicitly SDR stream; convert only if iPhone compatibility requires it.
+    # ios = prioritize H.264/AAC for broad iPhone playback.
     is_instagram = platform_name(url) == "Instagram"
-    if req.quality == "best":
-        # Instagram HDR plugin formats are selected first when authenticated HDR renditions exist.
-        # The second branch deliberately falls back to the best available stream, never fabricating HDR.
+    if req.output_mode == "source":
+        selector = "bestvideo+bestaudio/best"
+    elif req.output_mode == "sdr":
+        selector = "bestvideo[dynamic_range=SDR]+bestaudio/best[dynamic_range=SDR]"
+    elif req.quality == "best":
         selector = (
-            "bv*[dynamic_range!=SDR]+ba/bv*+ba/b"
-            if is_instagram else "bestvideo+bestaudio/best"
+            "bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
+            "best[ext=mp4][vcodec^=avc1]/bestvideo+bestaudio/best"
         )
     else:
         height = int(req.quality.split(":", 1)[1])
-        if is_instagram:
-            selector = (
-                f"bv*[height<={height}][dynamic_range!=SDR]+ba/"
-                f"bv*[height<={height}]+ba/b"
-            )
-        else:
-            selector = (
-                f"bestvideo[height<={height}][vcodec^=avc1]+bestaudio[ext=m4a]/"
-                f"best[height<={height}][ext=mp4][vcodec^=avc1]/"
-                f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
-            )
+        selector = (
+            f"bestvideo[height<={height}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
+            f"best[height<={height}][ext=mp4][vcodec^=avc1]/"
+            f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
+        )
 
     job_dir = None
     try:
@@ -314,15 +311,16 @@ def download(req: DownloadRequest):
             opts.update({
                 "format": selector,
                 # Prefer HDR formats before resolution/codec when the extractor exposes dynamic_range.
-                "format_sort": ["hdr", "res", "fps", "vcodec"],
+                "format_sort": ["res", "fps", "tbr", "vcodec"],
                 "format_sort_force": True,
                 "outtmpl": str(job_dir / "%(title).80s-%(id)s.%(ext)s"),
                 "max_filesize": MAX_FILE_MB * 1024 * 1024,
                 "overwrites": True,
+                **({"merge_output_format": "mkv"} if req.output_mode == "source" else {}),
             })
             logger.info(
-                "download job %s: starting yt-dlp instagram_cookie_auth=%s",
-                job_dir.name,
+                "download job %s: starting mode=%s instagram_cookie_auth=%s",
+                job_dir.name, req.output_mode,
                 bool(cookiefile) if is_instagram else False,
             )
             with yt_dlp.YoutubeDL(opts) as downloader:
@@ -363,7 +361,7 @@ def download(req: DownloadRequest):
         # Preserve native HDR HEVC + AAC streams as-is. Re-encoding them wastes RAM
         # and can strip HDR metadata; this is already a Photos-friendly iPhone format.
         native_hdr_hevc = is_hdr and video_codec in ("hevc", "h265") and audio_codec in ("aac", "")
-        needs_compat = (video_codec != "h264" or audio_codec not in ("aac", "")) and not native_hdr_hevc
+        needs_compat = req.output_mode != "source" and (video_codec != "h264" or audio_codec not in ("aac", "")) and not native_hdr_hevc
         # A "source" download may still be unplayable on iPhone (for example VP9 in MP4).
         # Preserve the original streams only when they are already broadly iOS-compatible;
         # otherwise transcode so the downloaded file contains visible video as well as audio.
@@ -408,6 +406,7 @@ def download(req: DownloadRequest):
             media_type=("video/mp4" if path.suffix.lower() == ".mp4" else
                         "video/webm" if path.suffix.lower() == ".webm" else
                         "video/quicktime" if path.suffix.lower() == ".mov" else
+                        "video/x-matroska" if path.suffix.lower() == ".mkv" else
                         "application/octet-stream"),
             background=BackgroundTask(cleanup_job_dir, job_dir),
         )
