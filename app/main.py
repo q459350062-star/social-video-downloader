@@ -1040,9 +1040,11 @@ def editor_export(
         filters = []
         if upscale_to != "original":
             target_edge = int(upscale_to)
-            if max(int(video_stream.get("width") or 0), int(video_stream.get("height") or 0)) < target_edge:
+            # Treat 1080/1440/2160 as the conventional short-edge target
+            # (1080p / 1440p / 2160p), preserving portrait and landscape orientation.
+            if min(int(video_stream.get("width") or 0), int(video_stream.get("height") or 0)) < target_edge:
                 filters.append(
-                    f"scale='if(gte(iw,ih),{target_edge},-2)':'if(gte(iw,ih),-2,{target_edge})':flags=lanczos"
+                    f"scale='if(gte(iw,ih),-2,{target_edge})':'if(gte(iw,ih),{target_edge},-2)':flags=lanczos"
                 )
         if requested_fps > 0 and source_fps > 0 and source_fps < requested_fps - 0.5:
             filters.append(
