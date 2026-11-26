@@ -31,6 +31,6 @@ RUN python3 /tmp/patch_yt_session.py
 COPY proxy-bridge.mjs /app/proxy-bridge.mjs
 RUN node --check /app/proxy-bridge.mjs
 COPY --chown=node:node entrypoint.sh /app/entrypoint.sh
-RUN chmod 755 /app/entrypoint.sh
+RUN sh -n /app/entrypoint.sh && chmod 755 /app/entrypoint.sh
 EXPOSE 9000
 ENTRYPOINT ["/app/entrypoint.sh"]
