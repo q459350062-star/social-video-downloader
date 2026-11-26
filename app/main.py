@@ -1038,6 +1038,20 @@ def editor_export(
         is_hdr = hdr_transfer in ("smpte2084", "arib-std-b67")
         output = job_dir / "edited-enhanced.mp4"
         filters = []
+        # Interpolate before scaling so motion estimation works on the smaller source
+        # frames. Clone a short boundary at both ends so MCI has enough context, then
+        # trim to the exact target frame count to avoid dropping the final frames.
+        if requested_fps > 0 and source_fps > 0 and source_fps < requested_fps - 0.5:
+            pad_seconds = 0.2
+            pad_frames = int(round(pad_seconds * requested_fps))
+            expected_frames = max(1, int((end - start) * requested_fps + 0.999999))
+            filters.append(
+                f"tpad=start_mode=clone:start_duration={pad_seconds}:"
+                f"stop_mode=clone:stop_duration={pad_seconds},"
+                f"minterpolate=fps={requested_fps:g}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,"
+                f"trim=start_frame={pad_frames}:end_frame={pad_frames + expected_frames},"
+                f"setpts=N/({requested_fps:g}*TB)"
+            )
         if upscale_to != "original":
             target_edge = int(upscale_to)
             # Treat 1080/1440/2160 as the conventional short-edge target
@@ -1046,10 +1060,6 @@ def editor_export(
                 filters.append(
                     f"scale='if(gte(iw,ih),-2,{target_edge})':'if(gte(iw,ih),{target_edge},-2)':flags=lanczos"
                 )
-        if requested_fps > 0 and source_fps > 0 and source_fps < requested_fps - 0.5:
-            filters.append(
-                f"minterpolate=fps={requested_fps:g}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
-            )
         if filters:
             command_filter = ",".join(filters)
         else:
