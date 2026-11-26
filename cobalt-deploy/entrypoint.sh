@@ -62,6 +62,9 @@ for attempt in $(seq 1 10); do
   fi
   if ! kill -0 "$SESSION_PID" 2>/dev/null; then
     echo "[yt-session] generator exited before a token was ready"
+    # Clean up orphaned Chromium processes so repeated failures do not consume the 512 MiB limit.
+    pkill -x chromium 2>/dev/null || true
+    pkill -x chromium-browser 2>/dev/null || true
     break
   fi
   sleep 2
