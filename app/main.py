@@ -992,21 +992,40 @@ def editor_export(
             requested_fps > 0 and source_fps > 0
             and source_fps < requested_fps - 0.5
         )
-        try:
-            validate_enhancement_limits(
-                width=int(video_stream.get("width") or 0),
-                height=int(video_stream.get("height") or 0),
-                duration=end - start,
-                upscale_to=upscale_to,
-                target_fps=requested_fps,
-                source_fps=source_fps,
-                interpolate=interpolate_fps,
-            )
-        except ValueError as exc:
-            raise HTTPException(413, str(exc))
+        source_width = int(video_stream.get("width") or 0)
+        source_height = int(video_stream.get("height") or 0)
+        staged_4k_interpolation = upscale_to == "2160" and interpolate_fps
+        if staged_4k_interpolation:
+            # The 512 MiB instance cannot hold 4K frames and motion-estimation buffers
+            # together. Process in two sequential FFmpeg runs: 720p interpolation,
+            # then 4K scaling. Keep the original upload untouched.
+            if source_width <= 0 or source_height <= 0 or source_width * source_height > 1920 * 1080:
+                raise HTTPException(422, "4K 分阶段增强仅支持 1080p 及以下原片；原片未修改。")
+            if end - start > 30:
+                raise HTTPException(422, "免费实例的 4K 分阶段增强单次最多 30 秒；原片未修改。")
+            try:
+                validate_enhancement_limits(
+                    width=1280, height=720, duration=end - start,
+                    upscale_to="original", target_fps=requested_fps,
+                    source_fps=source_fps, interpolate=True,
+                )
+            except ValueError as exc:
+                raise HTTPException(422, str(exc))
+        else:
+            try:
+                validate_enhancement_limits(
+                    width=source_width, height=source_height,
+                    duration=end - start, upscale_to=upscale_to,
+                    target_fps=requested_fps, source_fps=source_fps,
+                    interpolate=interpolate_fps,
+                )
+            except ValueError as exc:
+                raise HTTPException(422, str(exc))
         # Interpolate before scaling so motion estimation works on the smaller source
         # frames. Clone a short boundary at both ends so MCI has enough context, then
         # trim to the exact target frame count to avoid dropping the final frames.
+        if staged_4k_interpolation:
+            filters.append("scale='if(gte(iw,ih),-2,720)':'if(gte(iw,ih),720,-2)':flags=lanczos")
         if interpolate_fps:
             pad_seconds = 0.2
             pad_frames = int(round(pad_seconds * requested_fps))
@@ -1018,7 +1037,7 @@ def editor_export(
                 f"trim=start_frame={pad_frames}:end_frame={pad_frames + expected_frames},"
                 f"setpts=N/({requested_fps:g}*TB)"
             )
-        if upscale_to != "original":
+        if upscale_to != "original" and not staged_4k_interpolation:
             target_edge = int(upscale_to)
             # Treat 1080/1440/2160 as the conventional short-edge target
             # (1080p / 1440p / 2160p), preserving portrait and landscape orientation.
@@ -1091,7 +1110,8 @@ def editor_export(
             # MP4 text subtitle track; keep it selectable instead of burning it into pixels.
             subtitle_input_index = 2 if narration and narration.filename else 1
             command += ["-map", f"{subtitle_input_index}:0", "-c:s", "mov_text"]
-        command += ["-movflags", "+faststart", str(output)]
+        stage1_output = job_dir / "stage1-720p-30fps.mp4" if staged_4k_interpolation else output
+        command += ["-movflags", "+faststart", str(stage1_output)]
 
         logger.info(
             "editor job %s: export start hdr_input=%s trim=%s..%s upscale=%s target_fps=%s source_fps=%.3f filters=%s",
@@ -1102,9 +1122,36 @@ def editor_export(
         except subprocess.CalledProcessError as exc:
             logger.error("editor job %s: ffmpeg failed rc=%s stderr=%s", job_dir.name, exc.returncode, (exc.stderr or "")[-3000:])
             raise HTTPException(422, "剪辑导出失败。请尝试缩短视频或降低素材规格。")
+        if staged_4k_interpolation:
+            # Stage 2: upscale the completed 720p intermediate in a separate process.
+            # Copy audio/subtitle streams so they are not re-encoded a second time.
+            scale_filter = "scale='if(gte(iw,ih),-2,2160)':'if(gte(iw,ih),2160,-2)':flags=lanczos"
+            stage2 = [
+                "ffmpeg", "-y", "-threads", "1", "-filter_threads", "1",
+                "-i", str(stage1_output), "-map", "0", "-vf", scale_filter,
+            ]
+            if is_hdr:
+                stage2 += [
+                    "-c:v", "libx265", "-preset", "ultrafast", "-crf", "20",
+                    "-pix_fmt", "yuv420p10le", "-tag:v", "hvc1", "-threads:v", "1",
+                    "-x265-params", "pools=1:frame-threads=1",
+                    "-color_primaries", video_stream.get("color_primaries", "bt2020"),
+                    "-color_trc", video_stream.get("color_transfer", "smpte2084"),
+                    "-colorspace", video_stream.get("color_space", "bt2020nc"),
+                ]
+            else:
+                stage2 += ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "20",
+                           "-pix_fmt", "yuv420p", "-threads:v", "1"]
+            stage2 += ["-c:a", "copy", "-c:s", "copy", "-movflags", "+faststart", str(output)]
+            logger.info("editor job %s: stage 2/2 upscale 720p intermediate to 4K", job_dir.name)
+            try:
+                subprocess.run(stage2, capture_output=True, text=True, timeout=1800, check=True)
+            except subprocess.CalledProcessError as exc:
+                logger.error("editor job %s: 4K upscale stage failed rc=%s stderr=%s", job_dir.name, exc.returncode, (exc.stderr or "")[-3000:])
+                raise HTTPException(422, "720p/30FPS 阶段已完成，但 4K 放大阶段失败。原始上传文件未修改，请稍后重试。")
         if not output.exists() or output.stat().st_size == 0:
             raise HTTPException(422, "没有生成有效的导出文件。")
-        logger.info("editor job %s: export complete size=%s hdr_source=%s", job_dir.name, output.stat().st_size, is_hdr)
+        logger.info("editor job %s: export complete size=%s hdr_source=%s staged_4k=%s", job_dir.name, output.stat().st_size, is_hdr, staged_4k_interpolation)
         return FileResponse(
             output,
             filename="VideoDrop-Enhanced.mp4",
