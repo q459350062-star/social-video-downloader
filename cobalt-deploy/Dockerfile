@@ -18,7 +18,7 @@ COPY --from=build --chown=node:node /prod/api /app
 COPY --from=build --chown=node:node /src/.git /app/.git
 COPY --from=build /src/yt-session-generator /app/yt-session-generator
 RUN python3 -m venv /opt/yt-session-venv \
-    && python3 -c "from pathlib import Path; p=Path('/app/yt-session-generator/requirements.txt'); s=p.read_text(); old='nodriver==0.32'; new='nodriver==0.50.3'; assert old in s; s=s.replace(old,new); old_ws='websockets==13.1'; new_ws='websockets>=14,<16'; assert old_ws in s; p.write_text(s.replace(old_ws,new_ws))" \
+    && python3 -c "from pathlib import Path; p=Path('/app/yt-session-generator/requirements.txt'); s=p.read_text(); old='nodriver==0.32'; new='nodriver==0.50.3'; assert old in s; s=s.replace(old,new); old_ws='websockets==13.1'; new_ws='websockets>=14,<16'; assert old_ws in s; s=s.replace(old_ws,new_ws); s=s.replace('undetected-chromedriver==3.5.5\\n',''); p.write_text(s)" \
     && /opt/yt-session-venv/bin/pip install --no-cache-dir -r /app/yt-session-generator/requirements.txt \
     && python3 -c "from pathlib import Path; root=Path('/opt/yt-session-venv/lib/python3.12/site-packages/nodriver'); files=list(root.rglob('*.py')); [p.write_bytes(p.read_bytes().decode('utf-8','replace').encode('utf-8')) for p in files]; print(f'[nodriver] UTF-8 normalized files scanned={len(files)}')" \
     && PYTHONPATH=/app/yt-session-generator /opt/yt-session-venv/bin/python -c "import nodriver; import potoken_generator.main; print('[yt-session] import checks passed')" \
