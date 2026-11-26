@@ -22,7 +22,7 @@ export PYTHONUNBUFFERED=1
 PROXY_URL="${RESIDENTIAL_PROXY_URL:-}"
 if [ -n "$PROXY_URL" ]; then
   case "$PROXY_URL" in
-    http://*|https://*) ;;
+    http://*|https://*|socks5://*|socks5h://*) ;;
     *) PROXY_URL="http://$PROXY_URL" ;;
   esac
   export RESIDENTIAL_PROXY_URL="$PROXY_URL"
