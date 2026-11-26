@@ -30,15 +30,16 @@ new = """    @staticmethod
             " const target = button || player;"
             " if (!target) return null;"
             " const r = target.getBoundingClientRect();"
-            " return {x: r.left + r.width / 2, y: r.top + r.height / 2};"
+            " return (r.left + r.width / 2) + \",\" + (r.top + r.height / 2);"
             "})()"
         )
         for attempt in range(5):
             try:
-                point = await tab.evaluate(expression, return_by_value=True)
+                point = await tab.evaluate(expression)
                 if point:
-                    x = float(point["x"])
-                    y = float(point["y"])
+                    x_text, y_text = point.split(",", 1)
+                    x = float(x_text)
+                    y = float(y_text)
                     await tab.send(cdp.input_.dispatch_mouse_event(type_="mouseMoved", x=x, y=y))
                     await tab.send(cdp.input_.dispatch_mouse_event(type_="mousePressed", x=x, y=y, button="left", click_count=1))
                     await asyncio.sleep(0.1)
