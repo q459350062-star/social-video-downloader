@@ -100,6 +100,7 @@ class DownloadRequest(BaseModel):
     url: HttpUrl
     quality: str
     output_mode: str = "ios"
+    media_type: str = "video"
 
 
 def validate_url(raw: str) -> str:
@@ -579,9 +580,9 @@ def resolve(req: ResolveRequest):
 
 
 @app.get("/api/download-file")
-def download_file(url: HttpUrl, quality: str, output_mode: str = "ios"):
+def download_file(url: HttpUrl, quality: str, output_mode: str = "ios", media_type: str = "video"):
     """Native browser download path; avoids buffering the whole video in JS Blob memory."""
-    return download(DownloadRequest(url=url, quality=quality, output_mode=output_mode))
+    return download(DownloadRequest(url=url, quality=quality, output_mode=output_mode, media_type=media_type))
 
 
 @app.post("/api/download")
@@ -591,6 +592,8 @@ def download(req: DownloadRequest):
         raise HTTPException(400, "画质选项无效，请重新解析。")
     if req.output_mode not in ("ios", "source", "sdr"):
         raise HTTPException(400, "输出模式无效，请重新选择。")
+    if req.media_type not in ("video", "audio"):
+        raise HTTPException(400, "媒体类型无效，请重新选择。")
     # Queue a second request instead of returning a JSON 429 file to mobile Safari.
     # The free instance runs one worker; wait for the active conversion to release the lock.
     if not DOWNLOAD_LOCK.acquire(timeout=1800):
@@ -600,7 +603,9 @@ def download(req: DownloadRequest):
     # sdr = highest explicitly SDR stream; convert only if iPhone compatibility requires it.
     # ios = prioritize H.264/AAC for broad iPhone playback.
     is_instagram = platform_name(url) == "Instagram"
-    if req.quality == "4k60":
+    if req.media_type == "audio":
+        selector = "bestaudio/best"
+    elif req.quality == "4k60":
         four_k60_pair = (
             "bestvideo[height>=2160][width>=3840][fps>=59]+bestaudio/"
             "bestvideo[width>=2160][height>=3840][fps>=59]+bestaudio"
@@ -671,7 +676,7 @@ def download(req: DownloadRequest):
                 with yt_dlp.YoutubeDL(opts) as downloader:
                     info = downloader.extract_info(url, download=True)
             except Exception as yt_error:
-                if not cobalt_is_configured():
+                if not cobalt_is_configured() or req.media_type == "audio":
                     raise
                 logger.warning(
                     "yt-dlp download failed; trying self-hosted Cobalt fallback: %s",
@@ -687,6 +692,25 @@ def download(req: DownloadRequest):
             raise HTTPException(422, "没有生成可下载文件。")
         path = max(candidates, key=lambda p: p.stat().st_size)
         logger.info("download job %s: media file=%s size=%s", job_dir.name, path.name, path.stat().st_size)
+        if req.media_type == "audio":
+            audio_path = job_dir / (path.stem + ".mp3")
+            try:
+                subprocess.run([
+                    "ffmpeg", "-y", "-threads", "1", "-i", str(path),
+                    "-vn", "-map", "0:a:0", "-c:a", "libmp3lame", "-q:a", "0",
+                    "-id3v2_version", "3", str(audio_path),
+                ], capture_output=True, text=True, timeout=600, check=True)
+            except subprocess.CalledProcessError as exc:
+                logger.error("MP3 extraction failed stderr=%s", (exc.stderr or "")[-2000:])
+                raise HTTPException(422, "音频提取失败：该内容可能没有可提取的音轨。")
+            if not audio_path.exists() or audio_path.stat().st_size == 0:
+                raise HTTPException(422, "没有生成有效的 MP3 音频文件。")
+            response = FileResponse(
+                audio_path, filename=audio_path.name, media_type="audio/mpeg",
+                background=BackgroundTask(cleanup_job_dir, job_dir),
+            )
+            DOWNLOAD_LOCK.release()
+            return response
         try:
             path = ensure_mp4_container(path)
         except ValueError as exc:
