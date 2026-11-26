@@ -6,7 +6,7 @@ const tests = [
 ];
 
 const clients = ["ANDROID", "ANDROID_VR", "TV", "IOS"];
-const yt = await Innertube.create({ retrieve_player: false });
+const yt = await Innertube.create({ retrieve_player: true });
 
 for (const client of clients) {
   for (const test of tests) {
@@ -20,12 +20,14 @@ for (const client of clients) {
       const maxHeight = formats.reduce((max, f) => Math.max(max, Number(f.height) || 0), 0);
       const maxFps = formats.reduce((max, f) => Math.max(max, Number(f.fps) || 0), 0);
       const title = info.basic_info?.title || info.video_details?.title || "";
+      const playability = info.playability_status || {};
       console.log(
         "[YT_CLIENT_SMOKE] label=" + test.label +
         " client=" + client +
         " status=ok maxHeight=" + maxHeight +
         " maxFps=" + maxFps +
         " formats=" + formats.length +
+        " playability=" + JSON.stringify({status: playability.status, reason: playability.reason}) +
         " title=" + JSON.stringify(title)
       );
     } catch (error) {
