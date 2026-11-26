@@ -19,7 +19,8 @@ COPY --from=build /src/yt-session-generator /app/yt-session-generator
 RUN python3 -m venv /opt/yt-session-venv \
     && /opt/yt-session-venv/bin/pip install --no-cache-dir -r /app/yt-session-generator/requirements.txt \
     && python3 -c "from pathlib import Path; p=Path('/app/yt-session-generator/potoken_generator/server.py'); s=p.read_text(); old=\"'/token': self.get_potoken,\"; new=\"'/token': self.get_potoken,\\n            '/get_pot': self.get_potoken,\"; assert old in s; p.write_text(s.replace(old,new))" \
-    && python3 -c "from pathlib import Path; p=Path('/app/yt-session-generator/potoken_generator/extractor.py'); s=p.read_text(); old=\"logger.info(f'new token: {token_info.to_json()}')\"; new=\"logger.info(f'new token generated: visitor_data_length={len(token_info.visitor_data)} po_token_length={len(token_info.potoken)}')\"; assert old in s; p.write_text(s.replace(old,new))"
+    && python3 -c "from pathlib import Path; p=Path('/app/yt-session-generator/potoken_generator/extractor.py'); s=p.read_text(); old=\"logger.info(f'new token: {token_info.to_json()}')\"; new=\"logger.info(f'new token generated: visitor_data_length={len(token_info.visitor_data)} po_token_length={len(token_info.potoken)}')\"; assert old in s; p.write_text(s.replace(old,new))" \
+    && python3 -c "from pathlib import Path; p=Path('/app/yt-session-generator/potoken_generator/extractor.py'); s=p.read_text(); old=\"browser = await nodriver.start(headless=False,\"; new=\"browser = await nodriver.start(headless=False, no_sandbox=True,\"; assert old in s; p.write_text(s.replace(old,new))"
 COPY --chown=node:node entrypoint.sh /app/entrypoint.sh
 RUN chmod 755 /app/entrypoint.sh
 EXPOSE 9000
