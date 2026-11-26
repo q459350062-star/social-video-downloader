@@ -31,7 +31,7 @@ new = """    @staticmethod
             except Exception:
                 pass
             await asyncio.sleep(1)
-        state = await tab.evaluate("JSON.stringify({title:document.title,ready:document.readyState,player:!!document.querySelector('#movie_player'),button:!!document.querySelector('.ytp-large-play-button'),video:!!document.querySelector('video'),body:(document.body?.innerText||'').slice(0,240)})")
+            state = await tab.evaluate("JSON.stringify({title:document.title,ready:document.readyState,player:!!document.querySelector('#movie_player'),button:!!document.querySelector('.ytp-large-play-button'),video:!!document.querySelector('video'),body:(document.body?.innerText||'').slice(0,240)})")
         logger.info('YouTube player DOM state: %s', state)
         # The embedded player API can start playback more reliably than clicking
         # the container while the play button is still being replaced.
@@ -63,20 +63,20 @@ source = source.replace(old, new, 1)
 source = source.replace(
     "await tab.get('https://www.youtube.com/embed/jNQXAC9IVRw')",
     """await tab.send(cdp.network.enable())
-        await tab.send(cdp.network.set_extra_http_headers(cdp.network.Headers({"Referer": "https://social-video-downloader-6jqk.onrender.com/"})))
-        await tab.get('https://www.youtube.com/embed/jNQXAC9IVRw?autoplay=1&mute=1&playsinline=1&origin=https%3A%2F%2Fsocial-video-downloader-6jqk.onrender.com')
+            await tab.send(cdp.network.set_extra_http_headers(cdp.network.Headers({"Referer": "https://social-video-downloader-6jqk.onrender.com/"})))
+            await tab.get('https://www.youtube.com/embed/jNQXAC9IVRw?autoplay=1&mute=1&playsinline=1&origin=https%3A%2F%2Fsocial-video-downloader-6jqk.onrender.com')
         state = await tab.evaluate("JSON.stringify({title:document.title,url:location.href,ready:document.readyState,player:!!document.querySelector('#movie_player'),button:!!document.querySelector('.ytp-large-play-button'),video:!!document.querySelector('video'),body:(document.body?.innerText||'').slice(0,240)})")
-        logger.info("YouTube embed state: %s", state)""",
+            logger.info("YouTube embed state: %s", state)""",
     1,
 )
 source = source.replace(
     "browser = await nodriver.start(headless=False, sandbox=False,",
     """browser_args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--disable-extensions', '--disable-background-networking', '--disable-sync', '--renderer-process-limit=1']
-        proxy = os.getenv('YT_SESSION_PROXY') or os.getenv('RESIDENTIAL_PROXY_URL') or os.getenv('HTTPS_PROXY') or os.getenv('HTTP_PROXY')
-        if proxy:
-            browser_args.append('--proxy-server=' + proxy)
-            logger.info('Chromium session generator using configured proxy')
-        browser = await nodriver.start(headless=False, sandbox=False, browser_args=browser_args,""",
+            proxy = os.getenv('YT_SESSION_PROXY') or os.getenv('RESIDENTIAL_PROXY_URL') or os.getenv('HTTPS_PROXY') or os.getenv('HTTP_PROXY')
+            if proxy:
+                browser_args.append('--proxy-server=' + proxy)
+                logger.info('Chromium session generator using configured proxy')
+            browser = await nodriver.start(headless=False, sandbox=False, browser_args=browser_args,""",
     1,
 )
 compile(source, str(path), 'exec')
