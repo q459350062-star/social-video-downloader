@@ -205,10 +205,12 @@ def ydl_options(cookiefile=None):
         "extractor_retries": 2,
         "nocheckcertificate": False,
         "cachedir": False,
-        # YouTube currently benefits from mweb plus a BgUtils-generated PO token.
-        # The provider script runs locally through Deno; no public token endpoint is exposed.
+        # Keep yt-dlp's maintained default YouTube clients. Hard-pinning mweb/tv/web_safari
+        # became counterproductive after the 2026.11.23 client changes and can trigger
+        # LOGIN_REQUIRED before the PO-token provider is reached. BgUtils HTTP remains
+        # available for clients that require GVS tokens; trace token requests in diagnostics.
         "extractor_args": {
-            "youtube": {"player_client": ["mweb", "tv", "web_safari"]},
+            "youtube": {"pot_trace": ["true"]},
             "youtubepot-bgutilhttp": {
                 "base_url": "http://127.0.0.1:4416"
             },
