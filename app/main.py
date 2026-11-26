@@ -240,6 +240,11 @@ def cobalt_api_request(url: str, output_mode: str = "ios", quality: str = "best"
     api_key = os.getenv("COBALT_API_KEY", "").strip()
     if not base_url or not api_key:
         raise RuntimeError("Self-hosted Cobalt is not configured.")
+    key_format_ok = bool(re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", api_key))
+    logger.info(
+        "COBALT_AUTH_DIAG host=%s key_uuid_format=%s key_length=%s",
+        urlparse(base_url).netloc, key_format_ok, len(api_key),
+    )
     video_quality = "max"
     if quality.startswith("height:"):
         requested = int(quality.split(":", 1)[1])
