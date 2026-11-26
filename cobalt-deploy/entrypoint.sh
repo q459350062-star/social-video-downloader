@@ -4,6 +4,9 @@ set -eu
 : "${COBALT_API_KEY:?COBALT_API_KEY must be set}"
 : "${API_URL:?API_URL must be set to the public Render URL}"
 
+echo "[yt-client-smoke] checking Android/TV/iOS clients without downloading media"
+node /app/yt-client-smoke.mjs || echo "[yt-client-smoke] diagnostic failed; continuing service startup"
+
 # Build the private API-key database at runtime; the key is never committed to Git.
 printf '{"%s":{"name":"social-video-downloader","limit":20,"allowedServices":"all"}}\n' "$COBALT_API_KEY" > /tmp/keys.json
 export API_KEY_URL="file:///tmp/keys.json"
