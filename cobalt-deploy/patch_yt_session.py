@@ -32,7 +32,7 @@ new = """    @staticmethod
         )
         for attempt in range(5):
             try:
-                clicked = await tab.evaluate(expression)
+                clicked = await tab.evaluate(expression, return_by_value=True)
                 if clicked:
                     logger.info('clicked YouTube player using DOM evaluation')
                     return True
