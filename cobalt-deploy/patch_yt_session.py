@@ -72,11 +72,11 @@ source = source.replace(
 source = source.replace(
     "browser = await nodriver.start(headless=False, sandbox=False,",
     """browser_args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--disable-extensions', '--disable-background-networking', '--disable-sync', '--renderer-process-limit=1']
-            proxy = os.getenv('YT_SESSION_PROXY') or os.getenv('RESIDENTIAL_PROXY_URL') or os.getenv('HTTPS_PROXY') or os.getenv('HTTP_PROXY')
-            if proxy:
-                browser_args.append('--proxy-server=' + proxy)
-                logger.info('Chromium session generator using configured proxy')
-            browser = await nodriver.start(headless=False, sandbox=False, browser_args=browser_args,""",
+                proxy = os.getenv('YT_SESSION_PROXY') or os.getenv('RESIDENTIAL_PROXY_URL') or os.getenv('HTTPS_PROXY') or os.getenv('HTTP_PROXY')
+                if proxy:
+                    browser_args.append('--proxy-server=' + proxy)
+                    logger.info('Chromium session generator using configured proxy')
+                browser = await nodriver.start(headless=False, sandbox=False, browser_args=browser_args,""",
     1,
 )
 compile(source, str(path), 'exec')
