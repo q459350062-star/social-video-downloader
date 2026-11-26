@@ -287,9 +287,18 @@ def download(req: DownloadRequest):
     # ios = prioritize H.264/AAC for broad iPhone playback.
     is_instagram = platform_name(url) == "Instagram"
     if req.output_mode == "source":
-        selector = "bestvideo+bestaudio/best"
+        selector = (
+            "bestvideo+bestaudio/best" if req.quality == "best" else
+            f"bestvideo[height<={int(req.quality.split(chr(58), 1)[1])}]+bestaudio/"
+            f"best[height<={int(req.quality.split(chr(58), 1)[1])}]"
+        )
     elif req.output_mode == "sdr":
-        selector = "bestvideo[dynamic_range=SDR]+bestaudio/best[dynamic_range=SDR]"
+        selector = (
+            "bestvideo[dynamic_range=SDR]+bestaudio/best[dynamic_range=SDR]"
+            if req.quality == "best" else
+            f"bestvideo[height<={int(req.quality.split(chr(58), 1)[1])}][dynamic_range=SDR]+bestaudio/"
+            f"best[height<={int(req.quality.split(chr(58), 1)[1])}][dynamic_range=SDR]"
+        )
     elif req.quality == "best":
         selector = (
             "bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
