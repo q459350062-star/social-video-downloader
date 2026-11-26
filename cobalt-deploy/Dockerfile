@@ -29,7 +29,8 @@ RUN python3 -m venv /opt/yt-session-venv \
 COPY patch_yt_session.py /tmp/patch_yt_session.py
 RUN python3 /tmp/patch_yt_session.py
 COPY proxy-bridge.mjs /app/proxy-bridge.mjs
-RUN node --check /app/proxy-bridge.mjs
+COPY proxy-check.mjs /app/proxy-check.mjs
+RUN node --check /app/proxy-bridge.mjs && node --check /app/proxy-check.mjs
 COPY --chown=node:node entrypoint.sh /app/entrypoint.sh
 RUN sh -n /app/entrypoint.sh && chmod 755 /app/entrypoint.sh
 EXPOSE 9000
