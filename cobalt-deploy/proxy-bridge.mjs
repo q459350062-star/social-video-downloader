@@ -56,7 +56,7 @@ async function socks5Connect(host, port) {
   });
 
   try {
-    socket.write(Buffer.from(username || password ? [0x05, 0x01, 0x02] : [0x05, 0x01, 0x00]));
+    socket.write(Buffer.from(username || password ? [0x05, 0x02, 0x00, 0x02] : [0x05, 0x01, 0x00]));
     const method = await readExactly(socket, 2);
     if (method[0] !== 0x05 || method[1] === 0xff) {
       throw new Error("SOCKS5 upstream rejected available authentication methods");
