@@ -6,7 +6,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import threading
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlparse, urljoin
@@ -45,107 +44,20 @@ app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 
 
 def _youtube_startup_smoke_test():
-    """Run non-downloading yt-dlp and Cobalt API smoke tests for all four platforms."""
-    test_urls = {
-        "YouTube": "https://youtube.com/shorts/FgBo1KlkQQk",
-        "Instagram": "https://www.instagram.com/reel/DFQe23tOWKz/",
-        "Facebook": "https://www.facebook.com/watch/?v=883839773514682&ref=sharing",
-        "TikTok": "https://www.tiktok.com/@fatfatmillycat/video/7195741644585454894",
-    }
-    youtube_url = test_urls["YouTube"]
-    try:
-        options = ydl_options()
-        options.update({"verbose": True, "quiet": False, "no_warnings": False})
-        logger.info("YOUTUBE_SELF_TEST_START url=%s", youtube_url)
-        with yt_dlp.YoutubeDL(options) as ydl:
-            info = ydl.extract_info(youtube_url, download=False)
-        if not info:
-            raise RuntimeError("yt-dlp returned no video metadata")
-        logger.info(
-            "YOUTUBE_SELF_TEST_PASS id=%s formats=%s max_height=%s max_fps=%s",
-            info.get("id"), len(info.get("formats") or []), max(
-                (int(item.get("height") or 0) for item in info.get("formats") or []),
-                default=0,
-            ), max(
-                (float(item.get("fps") or 0) for item in info.get("formats") or []),
-                default=0,
-            ),
-        )
-    except Exception:
-        logger.exception("YOUTUBE_SELF_TEST_FAIL")
+    """Deprecated: network download tests must not run during web-service startup.
 
-    if not cobalt_is_configured():
-        logger.warning("COBALT_PLATFORM_TEST_SKIPPED reason=missing_server_side_configuration")
-        return
-
-    for platform, test_url in test_urls.items():
-        try:
-            if platform == "YouTube":
-                # Compare the user's Shorts URL with upstream reproductions and a known-good control.
-                youtube_download_tests = [
-                    ("requested_shorts", test_url),
-                    ("upstream_repro_ztq", "https://www.youtube.com/watch?v=ZTQcfnp_1fU"),
-                    ("upstream_repro_c5cb", "https://www.youtube.com/watch?v=c5cb0pqky3s"),
-                    ("known_good_control", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
-                ]
-                for test_label, youtube_test_url in youtube_download_tests:
-                    try:
-                        with tempfile.TemporaryDirectory(prefix="cobalt-youtube-smoke-") as temp_dir:
-                            job_dir = Path(temp_dir)
-                            cobalt_download(
-                                youtube_test_url, job_dir, output_mode="ios", quality="height:1080"
-                            )
-                            candidates = [
-                                item for item in job_dir.iterdir()
-                                if item.is_file() and item.stat().st_size > 0
-                            ]
-                            if not candidates:
-                                raise RuntimeError("Cobalt returned no non-empty media file.")
-                            output_path = max(candidates, key=lambda item: item.stat().st_size)
-                            probe = subprocess.run(
-                                [
-                                    "ffprobe", "-v", "error", "-show_entries",
-                                    "stream=codec_type,codec_name,width,height,avg_frame_rate",
-                                    "-show_entries", "format=duration",
-                                    "-of", "json", str(output_path),
-                                ],
-                                capture_output=True, text=True, timeout=45, check=True,
-                            )
-                            media = json.loads(probe.stdout or "{}")
-                            video_stream = next(
-                                (stream for stream in media.get("streams", []) if stream.get("codec_type") == "video"),
-                                None,
-                            )
-                            if not video_stream:
-                                raise RuntimeError("Cobalt output has no video stream.")
-                            logger.info(
-                                "COBALT_YOUTUBE_DOWNLOAD_PASS case=%s bytes=%s codec=%s width=%s height=%s fps=%s",
-                                test_label, output_path.stat().st_size, video_stream.get("codec_name"),
-                                video_stream.get("width"), video_stream.get("height"),
-                                video_stream.get("avg_frame_rate"),
-                            )
-                    except Exception as exc:
-                        logger.warning(
-                            "COBALT_YOUTUBE_DOWNLOAD_FAIL case=%s error=%s",
-                            test_label, str(exc)[:250],
-                        )
-            else:
-                result = cobalt_api_request(test_url, output_mode="ios", quality="best")
-                logger.info(
-                    "COBALT_PLATFORM_TEST_PASS platform=%s status=%s filename=%s",
-                    platform, result.get("status"),
-                    str(result.get("filename") or (result.get("output") or {}).get("filename") or "")[:100],
-                )
-        except Exception as exc:
-            # Log a concise failure per platform; never log credentials or signed media URLs.
-            logger.warning("COBALT_PLATFORM_TEST_FAIL platform=%s error=%s", platform, str(exc)[:300])
+    YouTube/Instagram/Facebook/TikTok checks are performed explicitly after deployment.
+    Running multiple full media downloads on every boot consumed the 512 MiB instance's
+    memory and bandwidth and could cause OOM restarts.
+    """
+    logger.info("Remote media smoke tests disabled during startup; use post-deploy tests.")
 
 
 @app.on_event("startup")
 def remove_abandoned_job_files():
     """Clean temporary workspaces and test YouTube extraction after a deploy."""
     cleanup_stale_jobs()
-    threading.Thread(target=_youtube_startup_smoke_test, daemon=True, name="youtube-self-test").start()
+    _youtube_startup_smoke_test()
 
 
 class ResolveRequest(BaseModel):
