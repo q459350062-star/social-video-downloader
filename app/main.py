@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlparse
@@ -40,10 +41,37 @@ app = FastAPI(title="Social Video Downloader", version="1.5.0")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 
 
+def _youtube_startup_smoke_test():
+    """Run a one-time, non-downloading YouTube extraction test after each deploy."""
+    test_url = "https://www.youtube.com/shorts/FgBo1KlkQQk"
+    try:
+        options = ydl_options()
+        options.update({"verbose": True, "quiet": False, "no_warnings": False})
+        logger.info("YOUTUBE_SELF_TEST_START url=%s", test_url)
+        with yt_dlp.YoutubeDL(options) as ydl:
+            info = ydl.extract_info(test_url, download=False)
+        if not info:
+            raise RuntimeError("yt-dlp returned no video metadata")
+        logger.info(
+            "YOUTUBE_SELF_TEST_PASS id=%s title=%s formats=%s max_height=%s max_fps=%s",
+            info.get("id"), (info.get("title") or "")[:120],
+            len(info.get("formats") or []), max(
+                (int(item.get("height") or 0) for item in info.get("formats") or []),
+                default=0,
+            ), max(
+                (float(item.get("fps") or 0) for item in info.get("formats") or []),
+                default=0,
+            ),
+        )
+    except Exception:
+        logger.exception("YOUTUBE_SELF_TEST_FAIL")
+
+
 @app.on_event("startup")
 def remove_abandoned_job_files():
-    """Clean temporary workspaces left behind by a previous process restart."""
+    """Clean temporary workspaces and test YouTube extraction after a deploy."""
     cleanup_stale_jobs()
+    threading.Thread(target=_youtube_startup_smoke_test, daemon=True, name="youtube-self-test").start()
 
 
 class ResolveRequest(BaseModel):
@@ -108,7 +136,7 @@ def ydl_options(cookiefile=None):
         # The provider script runs locally through Deno; no public token endpoint is exposed.
         "extractor_args": {
             "youtube": {"player_client": ["mweb", "tv", "web_safari"]},
-            "youtubepot-bgutilscript": {
+            "youtube-bgutilscript": {
                 "server_home": "/app/bgutil-ytdlp-pot-provider/server"
             },
         },
