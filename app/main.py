@@ -967,6 +967,8 @@ def editor_export(
     trim_end: float = Form(0),
     keep_original_audio: bool = Form(True),
     rights_confirm: bool = Form(False),
+    upscale_to: str = Form("original"),
+    target_fps: str = Form("original"),
 ):
     """Small, single-clip mobile editor export. Files are temporary and removed after response."""
     if not rights_confirm:
@@ -1014,6 +1016,19 @@ def editor_export(
         duration = float((probe_data.get("format") or {}).get("duration") or 0)
         if duration <= 0 or duration > 600:
             raise HTTPException(413, "当前手机编辑器单条素材限制为 10 分钟。")
+        if upscale_to not in {"original", "1080", "1440", "2160"}:
+            raise HTTPException(400, "超分辨率档位无效。")
+        if target_fps not in {"original", "30", "60"}:
+            raise HTTPException(400, "目标帧率无效。")
+        source_fps_text = video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate") or "0/1"
+        try:
+            source_fps_num, source_fps_den = source_fps_text.split("/", 1)
+            source_fps = float(source_fps_num) / max(float(source_fps_den), 1e-9)
+        except (ValueError, TypeError):
+            source_fps = 0.0
+        requested_fps = float(target_fps) if target_fps != "original" else 0.0
+        if upscale_to == "2160" and duration > 180:
+            raise HTTPException(413, "免费 CPU 实例的 4K 增强限制为 3 分钟；请缩短视频后再试。")
         start = min(float(trim_start), duration)
         end = duration - float(trim_end) if trim_end > 0 else duration
         if end <= start or end - start < 0.5:
@@ -1021,8 +1036,25 @@ def editor_export(
 
         hdr_transfer = (video_stream.get("color_transfer") or "").lower()
         is_hdr = hdr_transfer in ("smpte2084", "arib-std-b67")
-        output = job_dir / "edited.mp4"
+        output = job_dir / "edited-enhanced.mp4"
+        filters = []
+        if upscale_to != "original":
+            target_edge = int(upscale_to)
+            if max(int(video_stream.get("width") or 0), int(video_stream.get("height") or 0)) < target_edge:
+                filters.append(
+                    f"scale='if(gte(iw,ih),{target_edge},-2)':'if(gte(iw,ih),-2,{target_edge})':flags=lanczos"
+                )
+        if requested_fps > 0 and source_fps > 0 and source_fps < requested_fps - 0.5:
+            filters.append(
+                f"minterpolate=fps={requested_fps:g}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+            )
+        if filters:
+            command_filter = ",".join(filters)
+        else:
+            command_filter = ""
         command = ["ffmpeg", "-y", "-threads", "1", "-filter_threads", "1", "-ss", str(start), "-i", str(input_path)]
+        if command_filter:
+            command += ["-vf", command_filter]
         audio_path = None
         subtitle_path = None
         if narration and narration.filename:
@@ -1081,7 +1113,10 @@ def editor_export(
             command += ["-map", f"{subtitle_input_index}:0", "-c:s", "mov_text"]
         command += ["-movflags", "+faststart", str(output)]
 
-        logger.info("editor job %s: export start hdr_input=%s trim=%s..%s", job_dir.name, is_hdr, start, end)
+        logger.info(
+            "editor job %s: export start hdr_input=%s trim=%s..%s upscale=%s target_fps=%s source_fps=%.3f filters=%s",
+            job_dir.name, is_hdr, start, end, upscale_to, target_fps, source_fps, command_filter,
+        )
         try:
             subprocess.run(command, capture_output=True, text=True, timeout=1800, check=True)
         except subprocess.CalledProcessError as exc:
@@ -1092,7 +1127,7 @@ def editor_export(
         logger.info("editor job %s: export complete size=%s hdr_source=%s", job_dir.name, output.stat().st_size, is_hdr)
         return FileResponse(
             output,
-            filename="VideoDrop-Edited.mp4",
+            filename="VideoDrop-Enhanced.mp4",
             media_type="video/mp4",
             background=BackgroundTask(cleanup_job_dir, job_dir),
         )
