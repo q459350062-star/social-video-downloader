@@ -396,7 +396,36 @@ def download(req: DownloadRequest):
         video_codec = (video_stream.get("codec_name") or "").lower()
         transfer = (video_stream.get("color_transfer") or "").lower()
         is_hdr = transfer in ("smpte2084", "arib-std-b67")
-        logger.info("download job %s: ffprobe codec=%s transfer=%s hdr=%s", job_dir.name, video_codec, transfer, is_hdr)
+        actual_width = int(video_stream.get("width") or 0)
+        actual_height = int(video_stream.get("height") or 0)
+
+        def parse_frame_rate(value):
+            try:
+                numerator, denominator = str(value).split("/", 1)
+                denominator = float(denominator)
+                return float(numerator) / denominator if denominator else 0.0
+            except (TypeError, ValueError, ZeroDivisionError):
+                try:
+                    return float(value or 0)
+                except (TypeError, ValueError):
+                    return 0.0
+
+        actual_fps = parse_frame_rate(
+            video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate")
+        )
+        logger.info(
+            "download job %s: ffprobe resolution=%sx%s fps=%.3f codec=%s transfer=%s hdr=%s",
+            job_dir.name, actual_width, actual_height, actual_fps, video_codec, transfer, is_hdr,
+        )
+        if req.quality == "4k60" and (
+            min(actual_width, actual_height) < 2160
+            or max(actual_width, actual_height) < 3840
+            or actual_fps < 59
+        ):
+            raise HTTPException(
+                422,
+                "源站实际返回的文件未达到原生 4K 60FPS，已拦截低规格结果；请重新解析或选择最高可用画质。",
+            )
         audio_stream = next((st for st in streams if st.get("codec_type") == "audio"), None)
         audio_codec = (audio_stream.get("codec_name") or "").lower() if audio_stream else ""
         logger.info("download job %s: audio codec=%s", job_dir.name, audio_codec)
