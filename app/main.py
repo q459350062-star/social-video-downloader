@@ -130,13 +130,28 @@ def get_video_heights(info: dict) -> list[int]:
     return sorted(heights, reverse=True)
 
 
+def has_4k60(info: dict, sdr_only: bool = False) -> bool:
+    for item in info.get("formats", []):
+        if item.get("vcodec") in (None, "none"):
+            continue
+        width = int(item.get("width") or 0)
+        height = int(item.get("height") or 0)
+        fps = float(item.get("fps") or 0)
+        dynamic_range = str(item.get("dynamic_range") or "").upper()
+        if max(width, height) >= 3840 and min(width, height) >= 2160 and fps >= 59:
+            if not sdr_only or dynamic_range == "SDR":
+                return True
+    return False
+
+
 def format_metadata(info: dict) -> dict:
     formats = [f for f in info.get("formats", []) if f.get("vcodec") not in (None, "none")]
     formats.sort(
         key=lambda f: (
-            bool(f.get("dynamic_range") and str(f.get("dynamic_range")).upper() != "SDR"),
-            f.get("height") or 0,
+            min(f.get("width") or 0, f.get("height") or 0),
+            max(f.get("width") or 0, f.get("height") or 0),
             f.get("fps") or 0,
+            bool(f.get("dynamic_range") and str(f.get("dynamic_range")).upper() != "SDR"),
         ),
         reverse=True,
     )
@@ -160,6 +175,8 @@ def format_metadata(info: dict) -> dict:
         "hdr": hdr_values,
         "hdr_available": bool(hdr_values),
         "hdr_status": hdr_status,
+        "native_4k60_available": has_4k60(info),
+        "native_4k60_sdr_available": has_4k60(info, sdr_only=True),
     }
 
 
@@ -236,6 +253,8 @@ def resolve(req: ResolveRequest):
         choices = [{"quality": "best", "label": "最高可用画质（自动合并音视频）"}]
         for height in heights:
             choices.append({"quality": f"height:{height}", "label": f"{height}P（自动匹配音频）"})
+        if has_4k60(info):
+            choices.insert(1, {"quality": "4k60", "label": "原生 4K 60FPS（3840×2160级，源站有提供时）"})
 
         return {
             "platform": platform_name(url),
@@ -273,7 +292,7 @@ def download_file(url: HttpUrl, quality: str, output_mode: str = "ios"):
 @app.post("/api/download")
 def download(req: DownloadRequest):
     url = validate_url(str(req.url))
-    if req.quality != "best" and not re.fullmatch(r"height:[0-9]{1,5}", req.quality):
+    if req.quality not in ("best", "4k60") and not re.fullmatch(r"height:[0-9]{1,5}", req.quality):
         raise HTTPException(400, "画质选项无效，请重新解析。")
     if req.output_mode not in ("ios", "source", "sdr"):
         raise HTTPException(400, "输出模式无效，请重新选择。")
@@ -286,7 +305,20 @@ def download(req: DownloadRequest):
     # sdr = highest explicitly SDR stream; convert only if iPhone compatibility requires it.
     # ios = prioritize H.264/AAC for broad iPhone playback.
     is_instagram = platform_name(url) == "Instagram"
-    if req.output_mode == "source":
+    if req.quality == "4k60":
+        four_k60_video = "bestvideo[height>=2160][width>=3840][fps>=59]/bestvideo[width>=2160][height>=3840][fps>=59]"
+        four_k60_pair = f"{four_k60_video}+bestaudio"
+        four_k60_combined = "best[height>=2160][width>=3840][fps>=59]/best[width>=2160][height>=3840][fps>=59]"
+        if req.output_mode == "sdr":
+            selector = (
+                "bestvideo[height>=2160][width>=3840][fps>=59][dynamic_range=SDR]+bestaudio/"
+                "bestvideo[width>=2160][height>=3840][fps>=59][dynamic_range=SDR]+bestaudio/"
+                "best[height>=2160][width>=3840][fps>=59][dynamic_range=SDR]/"
+                "best[width>=2160][height>=3840][fps>=59][dynamic_range=SDR]"
+            )
+        else:
+            selector = f"{four_k60_pair}/{four_k60_combined}"
+    elif req.output_mode == "source":
         selector = (
             "bestvideo+bestaudio/best" if req.quality == "best" else
             f"bestvideo[height<={int(req.quality.split(chr(58), 1)[1])}]+bestaudio/"
