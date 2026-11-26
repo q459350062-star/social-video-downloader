@@ -12,4 +12,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 ENV PORT=10000
 EXPOSE 10000
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "(cd /app/bgutil-ytdlp-pot-provider/server/node_modules && /root/.deno/bin/deno run --allow-env --allow-net --allow-ffi=. --allow-read=. ../src/main.ts --port 4416) & exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
