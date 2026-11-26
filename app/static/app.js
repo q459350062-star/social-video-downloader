@@ -51,5 +51,11 @@ $("resolve").onclick=async()=>{
   $("result").classList.remove("hidden"); status("解析成功。已列出最高画质及可用分辨率。请直接点击绿色下载按钮。");
  }catch(e){status(e.message||"解析失败，请重试。",true)}finally{$("resolve").disabled=false}
 };
-$("formats").addEventListener("change",updateDownloadHref);
+$("formats").addEventListener("change",()=>{
+ if($("formats").value==="4k60"){
+  $("outputMode").value="source";
+  $("note").textContent="已识别到源站原生 4K 60FPS。为避免二次转码降低帧率或画质，已自动切换为原始流模式；文件可能为 MKV/WebM，iPhone 照片不一定能直接播放。";
+ }
+ updateDownloadHref();
+});
 $("outputMode").addEventListener("change",updateDownloadHref);
