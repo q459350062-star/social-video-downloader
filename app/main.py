@@ -19,7 +19,7 @@ from .runtime import (
 )
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request as FastAPIRequest
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, HttpUrl
@@ -41,6 +41,22 @@ MAX_FILE_MB = int(os.getenv("MAX_FILE_MB", "1024"))
 
 app = FastAPI(title="Social Video Downloader", version="1.5.0")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
+
+
+@app.exception_handler(HTTPException)
+async def log_http_exception(request: FastAPIRequest, exc: HTTPException):
+    if exc.status_code == 413:
+        logger.warning(
+            "HTTP_413_DETAIL path=%s content_length=%s detail=%s",
+            request.url.path,
+            request.headers.get("content-length", "unknown"),
+            exc.detail,
+        )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers,
+    )
 
 
 @app.middleware("http")
