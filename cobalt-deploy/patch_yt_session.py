@@ -64,7 +64,7 @@ source = source.replace(
 )
 source = source.replace(
     "browser = await nodriver.start(headless=False, sandbox=False,",
-    "browser = await nodriver.start(headless=False, sandbox=False, browser_args=['--disable-gpu', '--disable-extensions', '--disable-background-networking', '--disable-sync', '--renderer-process-limit=1'],",
+    "browser = await nodriver.start(headless=False, sandbox=False, browser_args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--disable-extensions', '--disable-background-networking', '--disable-sync', '--renderer-process-limit=1'],",
     1,
 )
 compile(source, str(path), 'exec')
