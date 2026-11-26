@@ -1137,3 +1137,45 @@ def editor_export(
             # Copy audio/subtitle streams so they are not re-encoded a second time.
             scale_filter = "scale='if(gte(iw,ih),-2,2160)':'if(gte(iw,ih),2160,-2)':flags=lanczos"
             stage2 = [
+                "ffmpeg", "-y", "-threads", "1", "-filter_threads", "1",
+                "-i", str(stage1_output), "-map", "0", "-vf", scale_filter,
+            ]
+            if is_hdr:
+                stage2 += [
+                    "-c:v", "libx265", "-preset", "ultrafast", "-crf", "20",
+                    "-pix_fmt", "yuv420p10le", "-tag:v", "hvc1", "-threads:v", "1",
+                    "-x265-params", "pools=1:frame-threads=1",
+                    "-color_primaries", video_stream.get("color_primaries", "bt2020"),
+                    "-color_trc", video_stream.get("color_transfer", "smpte2084"),
+                    "-colorspace", video_stream.get("color_space", "bt2020nc"),
+                ]
+            else:
+                stage2 += ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "20",
+                           "-pix_fmt", "yuv420p", "-threads:v", "1"]
+            stage2 += ["-c:a", "copy", "-c:s", "copy", "-movflags", "+faststart", str(output)]
+            logger.info("editor job %s: stage 2/2 upscale 720p intermediate to 4K", job_dir.name)
+            try:
+                subprocess.run(stage2, capture_output=True, text=True, timeout=1800, check=True)
+            except subprocess.CalledProcessError as exc:
+                logger.error("editor job %s: 4K upscale stage failed rc=%s stderr=%s", job_dir.name, exc.returncode, (exc.stderr or "")[-3000:])
+                raise HTTPException(422, "720p/30FPS 阶段已完成，但 4K 放大阶段失败。原始上传文件未修改，请稍后重试。")
+        if not output.exists() or output.stat().st_size == 0:
+            raise HTTPException(422, "没有生成有效的导出文件。")
+        logger.info("editor job %s: export complete size=%s hdr_source=%s staged_4k=%s", job_dir.name, output.stat().st_size, is_hdr, staged_4k_interpolation)
+        return FileResponse(
+            output,
+            filename="VideoDrop-Enhanced.mp4",
+            media_type="video/mp4",
+            background=BackgroundTask(cleanup_job_dir, job_dir),
+        )
+    except HTTPException:
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
+        raise
+    except Exception:
+        logger.exception("editor job %s: unexpected failure", job_dir.name if job_dir else "unallocated")
+        if job_dir is not None:
+            cleanup_job_dir(job_dir)
+        raise HTTPException(422, "剪辑处理失败，详细原因已记录。")
+    finally:
+        DOWNLOAD_LOCK.release()
