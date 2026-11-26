@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.main import ensure_mp4_container
+from app.mp4 import ensure_mp4_container
 
 
 class Mp4ContainerTests(unittest.TestCase):
@@ -13,7 +13,7 @@ class Mp4ContainerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             source = Path(temp) / "already.mp4"
             source.write_bytes(b"mp4")
-            with patch("app.main.subprocess.run") as run:
+            with patch("app.mp4.subprocess.run") as run:
                 result = ensure_mp4_container(source)
             self.assertEqual(result, source)
             run.assert_not_called()
@@ -36,7 +36,7 @@ class Mp4ContainerTests(unittest.TestCase):
                 Path(command[-1]).write_bytes(b"valid-mp4")
                 return SimpleNamespace(stdout="")
 
-            with patch("app.main.subprocess.run", side_effect=fake_run):
+            with patch("app.mp4.subprocess.run", side_effect=fake_run):
                 result = ensure_mp4_container(source)
 
             self.assertEqual(result.suffix, ".mp4")
