@@ -80,39 +80,54 @@ def _youtube_startup_smoke_test():
     for platform, test_url in test_urls.items():
         try:
             if platform == "YouTube":
-                # Verify a real media stream, not just a successful metadata/API response.
-                with tempfile.TemporaryDirectory(prefix="cobalt-youtube-smoke-") as temp_dir:
-                    job_dir = Path(temp_dir)
-                    cobalt_download(test_url, job_dir, output_mode="ios", quality="best")
-                    candidates = [
-                        item for item in job_dir.iterdir()
-                        if item.is_file() and item.stat().st_size > 0
-                    ]
-                    if not candidates:
-                        raise RuntimeError("Cobalt returned no non-empty YouTube media file.")
-                    output_path = max(candidates, key=lambda item: item.stat().st_size)
-                    probe = subprocess.run(
-                        [
-                            "ffprobe", "-v", "error", "-show_entries",
-                            "stream=codec_type,codec_name,width,height,avg_frame_rate",
-                            "-show_entries", "format=duration",
-                            "-of", "json", str(output_path),
-                        ],
-                        capture_output=True, text=True, timeout=45, check=True,
-                    )
-                    media = json.loads(probe.stdout or "{}")
-                    video_stream = next(
-                        (stream for stream in media.get("streams", []) if stream.get("codec_type") == "video"),
-                        None,
-                    )
-                    if not video_stream:
-                        raise RuntimeError("Cobalt YouTube output has no video stream.")
-                    logger.info(
-                        "COBALT_PLATFORM_DOWNLOAD_PASS platform=YouTube bytes=%s codec=%s width=%s height=%s fps=%s",
-                        output_path.stat().st_size, video_stream.get("codec_name"),
-                        video_stream.get("width"), video_stream.get("height"),
-                        video_stream.get("avg_frame_rate"),
-                    )
+                # Compare the user's Shorts URL with upstream reproductions and a known-good control.
+                youtube_download_tests = [
+                    ("requested_shorts", test_url),
+                    ("upstream_repro_ztq", "https://www.youtube.com/watch?v=ZTQcfnp_1fU"),
+                    ("upstream_repro_c5cb", "https://www.youtube.com/watch?v=c5cb0pqky3s"),
+                    ("known_good_control", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
+                ]
+                for test_label, youtube_test_url in youtube_download_tests:
+                    try:
+                        with tempfile.TemporaryDirectory(prefix="cobalt-youtube-smoke-") as temp_dir:
+                            job_dir = Path(temp_dir)
+                            cobalt_download(
+                                youtube_test_url, job_dir, output_mode="ios", quality="height:1080"
+                            )
+                            candidates = [
+                                item for item in job_dir.iterdir()
+                                if item.is_file() and item.stat().st_size > 0
+                            ]
+                            if not candidates:
+                                raise RuntimeError("Cobalt returned no non-empty media file.")
+                            output_path = max(candidates, key=lambda item: item.stat().st_size)
+                            probe = subprocess.run(
+                                [
+                                    "ffprobe", "-v", "error", "-show_entries",
+                                    "stream=codec_type,codec_name,width,height,avg_frame_rate",
+                                    "-show_entries", "format=duration",
+                                    "-of", "json", str(output_path),
+                                ],
+                                capture_output=True, text=True, timeout=45, check=True,
+                            )
+                            media = json.loads(probe.stdout or "{}")
+                            video_stream = next(
+                                (stream for stream in media.get("streams", []) if stream.get("codec_type") == "video"),
+                                None,
+                            )
+                            if not video_stream:
+                                raise RuntimeError("Cobalt output has no video stream.")
+                            logger.info(
+                                "COBALT_YOUTUBE_DOWNLOAD_PASS case=%s bytes=%s codec=%s width=%s height=%s fps=%s",
+                                test_label, output_path.stat().st_size, video_stream.get("codec_name"),
+                                video_stream.get("width"), video_stream.get("height"),
+                                video_stream.get("avg_frame_rate"),
+                            )
+                    except Exception as exc:
+                        logger.warning(
+                            "COBALT_YOUTUBE_DOWNLOAD_FAIL case=%s error=%s",
+                            test_label, str(exc)[:250],
+                        )
             else:
                 result = cobalt_api_request(test_url, output_mode="ios", quality="best")
                 logger.info(
