@@ -40,8 +40,7 @@ def validate_enhancement_limits(
     if upscale_to == "2160":
         if interpolate:
             raise ValueError(
-                "当前 512MiB 免费实例不能安全执行 4K 放大与运动插帧组合。"
-                "请分两次处理：先导出 720p/30FPS，再单独放大；原片不会被修改。"
+                "4K 放大与运动插帧需要由导出接口自动分阶段执行；请使用最新版本后重试。"
             )
         if pixels > 1920 * 1080:
             raise ValueError("4K 放大仅接受 1080p 及以下源素材，避免高分辨率重复编码导致内存溢出。")
