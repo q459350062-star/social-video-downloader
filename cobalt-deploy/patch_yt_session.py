@@ -17,9 +17,27 @@ old = """    @staticmethod
 
 new = """    @staticmethod
     async def _click_on_player(tab: nodriver.Tab) -> bool:
-        # YouTube replaces the player node during hydration. Re-select the DOM
-        # element before each trusted click instead of reusing a stale CDP node id.
-        await asyncio.sleep(3)
+        # Wait for the embed/player JS to hydrate before interacting with it.
+        for _ in range(15):
+            try:
+                ready = await tab.evaluate("document.readyState")
+                if ready == "complete":
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(1)
+        state = await tab.evaluate("JSON.stringify({title:document.title,ready:document.readyState,player:!!document.querySelector('#movie_player'),button:!!document.querySelector('.ytp-large-play-button'),video:!!document.querySelector('video'),body:(document.body?.innerText||'').slice(0,240)})")
+        logger.info('YouTube player DOM state: %s', state)
+        # The embedded player API can start playback more reliably than clicking
+        # the container while the play button is still being replaced.
+        try:
+            started = await tab.evaluate("(() => { const p=document.getElementById('movie_player'); if (p && typeof p.playVideo === 'function') { p.playVideo(); return true; } const v=document.querySelector('video'); if (v) { v.muted=true; v.play(); return true; } return false; })()")
+            if started:
+                logger.info('requested YouTube player playback via player API')
+                return True
+        except Exception as exc:
+            logger.warning('player API playback request failed: %s', exc)
+        # Fallback to fresh trusted element clicks; never reuse stale node ids.
         for attempt in range(5):
             for selector in ('.ytp-large-play-button', '#movie_player'):
                 try:
@@ -30,7 +48,7 @@ new = """    @staticmethod
                 except Exception as exc:
                     logger.warning('player click attempt %s selector %s failed: %s', attempt + 1, selector, exc)
             await asyncio.sleep(2)
-        logger.warning('update failed: unable to click YouTube player after retries')
+        logger.warning('update failed: unable to start YouTube player after retries')
         return False
 """
 
