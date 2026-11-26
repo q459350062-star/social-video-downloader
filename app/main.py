@@ -10,6 +10,8 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from .checksums import calculate_file_hashes
 from .runtime import (
@@ -155,6 +157,100 @@ def platform_name(url: str) -> str:
     if host in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}:
         return "YouTube"
     return "Facebook"
+
+
+
+def cobalt_is_configured() -> bool:
+    return bool(os.getenv("COBALT_API_URL", "").strip() and os.getenv("COBALT_API_KEY", "").strip())
+
+
+def cobalt_api_request(url: str, output_mode: str = "ios", quality: str = "best") -> dict:
+    base_url = os.getenv("COBALT_API_URL", "").strip().rstrip("/")
+    api_key = os.getenv("COBALT_API_KEY", "").strip()
+    if not base_url or not api_key:
+        raise RuntimeError("Self-hosted Cobalt is not configured.")
+    video_quality = "max"
+    if quality.startswith("height:"):
+        requested = int(quality.split(":", 1)[1])
+        allowed = [4320, 2160, 1440, 1080, 720, 480, 360, 240, 144]
+        video_quality = str(next((h for h in allowed if h <= requested), 144))
+    payload = {
+        "url": url,
+        "videoQuality": video_quality,
+        "downloadMode": "auto",
+        "filenameStyle": "pretty",
+    }
+    if platform_name(url) == "YouTube":
+        if output_mode == "source":
+            payload.update({"youtubeVideoCodec": "av1", "youtubeVideoContainer": "webm"})
+        else:
+            payload.update({"youtubeVideoCodec": "h264", "youtubeVideoContainer": "mp4"})
+    request = Request(
+        base_url + "/",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": "Api-Key " + api_key,
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=75) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read(2000).decode("utf-8", errors="replace")
+        raise RuntimeError(f"Cobalt API HTTP {exc.code}: {detail[:500]}") from exc
+    if result.get("status") == "error":
+        error = result.get("error") or {}
+        raise RuntimeError("Cobalt API error: " + str(error.get("code") or "unknown"))
+    if result.get("status") not in ("tunnel", "redirect") or not result.get("url"):
+        raise RuntimeError("Cobalt returned an unsupported response status.")
+    return result
+
+
+def cobalt_download(url: str, job_dir: Path, output_mode: str, quality: str) -> dict:
+    result = cobalt_api_request(url, output_mode=output_mode, quality=quality)
+    media_url = result["url"]
+    parsed_media = urlparse(media_url)
+    cobalt_host = urlparse(os.getenv("COBALT_API_URL", "")).netloc
+    headers = {"User-Agent": "SocialVideoDownloader/1.0"}
+    if parsed_media.netloc == cobalt_host:
+        headers["Authorization"] = "Api-Key " + os.getenv("COBALT_API_KEY", "").strip()
+    request = Request(media_url, headers=headers)
+    with urlopen(request, timeout=180) as response:
+        suggested = str(result.get("filename") or "video.mp4")
+        filename = Path(suggested.replace("\\", "/")).name
+        filename = re.sub(r"[^0-9A-Za-z._ -]", "_", filename).strip(" .") or "video.mp4"
+        if not Path(filename).suffix:
+            content_type = (response.headers.get("Content-Type") or "").split(";", 1)[0].lower()
+            extension = {
+                "video/mp4": ".mp4",
+                "video/webm": ".webm",
+                "video/x-matroska": ".mkv",
+                "video/quicktime": ".mov",
+            }.get(content_type, ".mp4")
+            filename += extension
+        output_path = job_dir / filename
+        total = 0
+        with output_path.open("wb") as destination:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_FILE_MB * 1024 * 1024:
+                    raise HTTPException(413, "文件超过当前服务大小限制。")
+                destination.write(chunk)
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        raise RuntimeError("Cobalt returned an empty media file.")
+    return {
+        "id": "cobalt",
+        "title": Path(output_path.name).stem,
+        "format_id": "cobalt",
+        "requested_formats": [],
+        "webpage_url": url,
+    }
 
 
 def get_video_heights(info: dict) -> list[int]:
@@ -313,6 +409,37 @@ def resolve(req: ResolveRequest):
     except HTTPException:
         raise
     except Exception as exc:
+        if cobalt_is_configured():
+            try:
+                fallback = cobalt_api_request(url, output_mode="ios", quality="best")
+                filename = Path(str(fallback.get("filename") or "公开视频")).stem
+                return {
+                    "platform": platform_name(url),
+                    "title": filename or "公开视频",
+                    "thumbnail": None,
+                    "duration": None,
+                    "choices": [{"quality": "best", "label": "Cobalt 源站最高可用画质（实际规格以文件检测为准）"}],
+                    "creator": "Cobalt 备用解析",
+                    "creator_id": "",
+                    "source_url": url,
+                    "source_post_id": "",
+                    "source_date": "",
+                    "source": {
+                        "max_resolution": "下载后检测实际分辨率",
+                        "max_fps": None,
+                        "video_codecs": [],
+                        "best_video_codec": None,
+                        "best_dynamic_range": None,
+                        "hdr": [],
+                        "hdr_available": False,
+                        "hdr_status": "Cobalt 未提供可验证的 HDR 元数据",
+                        "native_4k60_available": False,
+                        "native_4k60_sdr_available": False,
+                    },
+                    "note": "已切换自建 Cobalt 备用解析。当前接口未提供可验证的分辨率、帧率或 HDR 信息；不会虚报 4K60，实际文件规格以下载后检测为准。",
+                }
+            except Exception:
+                logger.exception("Cobalt resolve fallback failed")
         msg = str(exc).lower()
         if any(word in msg for word in ("private", "login", "sign in", "not available")):
             raise HTTPException(422, "该内容可能不是公开内容，或平台要求登录才能访问。")
@@ -405,8 +532,18 @@ def download(req: DownloadRequest):
                 job_dir.name, req.output_mode,
                 bool(cookiefile) if is_instagram else False,
             )
-            with yt_dlp.YoutubeDL(opts) as downloader:
-                info = downloader.extract_info(url, download=True)
+            try:
+                with yt_dlp.YoutubeDL(opts) as downloader:
+                    info = downloader.extract_info(url, download=True)
+            except Exception as yt_error:
+                if not cobalt_is_configured():
+                    raise
+                logger.warning(
+                    "yt-dlp download failed; trying self-hosted Cobalt fallback: %s",
+                    str(yt_error)[:300],
+                )
+                info = cobalt_download(url, job_dir, req.output_mode, req.quality)
+                logger.info("download job %s: self-hosted Cobalt fallback completed", job_dir.name)
         logger.info("download job %s: yt-dlp completed selected_format=%s dynamic_range=%s requested_formats=%s", job_dir.name, info.get("format_id"), info.get("dynamic_range"), [(f.get("format_id"), f.get("dynamic_range"), f.get("vcodec"), f.get("height")) for f in info.get("requested_formats", [])])
         if not info or info.get("is_live"):
             raise HTTPException(422, "无法下载该内容。")
