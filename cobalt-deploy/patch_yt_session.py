@@ -3,6 +3,8 @@ from pathlib import Path
 path = Path("/app/yt-session-generator/potoken_generator/extractor.py")
 source = path.read_text()
 
+if "import os" not in source:
+    source = source.replace("import asyncio\n", "import asyncio\nimport os\n", 1)
 if "from nodriver import cdp" not in source:
     source = source.replace("import nodriver\n", "import nodriver\nfrom nodriver import cdp\n", 1)
 
@@ -69,7 +71,12 @@ source = source.replace(
 )
 source = source.replace(
     "browser = await nodriver.start(headless=False, sandbox=False,",
-    "browser = await nodriver.start(headless=False, sandbox=False, browser_args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--disable-extensions', '--disable-background-networking', '--disable-sync', '--renderer-process-limit=1'],",
+    """browser_args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--disable-extensions', '--disable-background-networking', '--disable-sync', '--renderer-process-limit=1']
+        proxy = os.getenv('YT_SESSION_PROXY') or os.getenv('RESIDENTIAL_PROXY_URL') or os.getenv('HTTPS_PROXY') or os.getenv('HTTP_PROXY')
+        if proxy:
+            browser_args.append('--proxy-server=' + proxy)
+            logger.info('Chromium session generator using configured proxy')
+        browser = await nodriver.start(headless=False, sandbox=False, browser_args=browser_args,""",
     1,
 )
 compile(source, str(path), 'exec')
