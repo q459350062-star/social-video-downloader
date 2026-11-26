@@ -1,5 +1,5 @@
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
-yt-dlp>=2026.8.19
+yt-dlp[default]>=2026.8.19
 yt-dlp-instagram-hdr>=0.6.1
 python-multipart==0.0.20
