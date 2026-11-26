@@ -11,7 +11,7 @@ IPHONE_MP4_VIDEO_CODECS = {"h264", "hevc", "h265"}
 MP4_AUDIO_CODECS = {"aac", "alac", "mp3", "ac3", "eac3"}
 
 
-def ensure_mp4_container(path: Path) -> Path:
+def ensure_mp4_container(path: Path, preserve_source: bool = False) -> Path:
     """Produce a playable MP4; transcode unsupported video codecs to H.264.
 
     Compatible H.264/HEVC video is stream-copied to preserve source quality.
@@ -35,6 +35,16 @@ def ensure_mp4_container(path: Path) -> Path:
     video_needs_transcode = video_codec not in IPHONE_MP4_VIDEO_CODECS
     audio_needs_transcode = bool(audio_stream and audio_codec not in MP4_AUDIO_CODECS)
     needs_mp4 = path.suffix.lower() != ".mp4"
+
+    # Source mode must not silently destroy HDR, bit depth, codec, or bitrate.
+    # Keep the original container whenever the streams cannot be copied into MP4
+    # without transcoding. Users can explicitly choose iPhone mode for conversion.
+    if preserve_source and (video_needs_transcode or audio_needs_transcode):
+        logger.info(
+            "preserving original media source=%s video_codec=%s audio_codec=%s",
+            path.name, video_codec, audio_codec,
+        )
+        return path
 
     if not (video_needs_transcode or audio_needs_transcode or needs_mp4):
         return path

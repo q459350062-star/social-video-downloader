@@ -713,7 +713,7 @@ def download(req: DownloadRequest):
             DOWNLOAD_LOCK.release()
             return response
         try:
-            path = ensure_mp4_container(path)
+            path = ensure_mp4_container(path, preserve_source=(req.output_mode == "source"))
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         if path.stat().st_size > MAX_FILE_MB * 1024 * 1024:

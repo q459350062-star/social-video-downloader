@@ -49,6 +49,23 @@ class Mp4ContainerTests(unittest.TestCase):
             self.assertIn("yuv420p", ffmpeg)
             self.assertIn("ultrafast", ffmpeg)
 
+    def test_source_mode_preserves_vp9_file_without_transcoding(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "source.webm"
+            original = b"original-vp9-webm"
+            source.write_bytes(original)
+            with patch("app.mp4.subprocess.run", return_value=SimpleNamespace(stdout=json.dumps({
+                "streams": [
+                    {"codec_type": "video", "codec_name": "vp9"},
+                    {"codec_type": "audio", "codec_name": "opus"},
+                ]
+            }))) as run:
+                result = ensure_mp4_container(source, preserve_source=True)
+            self.assertEqual(result, source)
+            self.assertEqual(result.read_bytes(), original)
+            run.assert_called_once()
+            self.assertEqual(run.call_args.args[0][0], "ffprobe")
+
     def test_mkv_with_hevc_is_remuxed_without_reencoding_video(self):
         with tempfile.TemporaryDirectory() as temp:
             source = Path(temp) / "source.mkv"
