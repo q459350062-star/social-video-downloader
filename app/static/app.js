@@ -54,7 +54,7 @@ $("resolve").onclick=async()=>{
 $("formats").addEventListener("change",()=>{
  if($("formats").value==="4k60"){
   $("outputMode").value="source";
-  $("note").textContent="已识别到源站原生 4K 60FPS。为避免二次转码降低帧率或画质，已自动切换为原始流模式；文件可能为 MKV/WebM，iPhone 照片不一定能直接播放。";
+  $("note").textContent="已识别到源站原生 4K 60FPS。已切换为原始画质模式，并优先无损封装为 MP4；视频编码保持不变，非兼容音频会转换为 AAC。若源视频编码本身不受 iPhone 支持，MP4 容器也不代表一定能在照片中播放。";
  }
  updateDownloadHref();
 });
