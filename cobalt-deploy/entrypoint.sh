@@ -6,6 +6,7 @@ set -eu
 
 # Keep Node on IPv4 first; this Render region has no working IPv6 route to YouTube.
 export NODE_OPTIONS="${NODE_OPTIONS:-} --dns-result-order=ipv4first"
+unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
 
 # Build the private API-key database at runtime; the key is never committed to Git.
 printf '{"%s":{"name":"social-video-downloader","limit":20,"allowedServices":"all"}}\n' "$COBALT_API_KEY" > /tmp/keys.json
