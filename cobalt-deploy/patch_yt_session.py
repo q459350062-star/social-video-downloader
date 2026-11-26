@@ -74,12 +74,19 @@ path.write_text(source)
 # rather than trying to parse its plain-text body as JSON.
 cobalt_path = Path("/app/src/processing/helpers/youtube-session.js")
 cobalt_source = cobalt_path.read_text()
-old_fetch = "const session = await res.json();"
-new_fetch = """if (!res.ok) {
-        const errorBody = await res.text();
-        throw new Error("session server returned HTTP " + res.status + ": " + errorBody);
+old_fetch = """    const newSession = await fetch(
+        sessionServerUrl,
+        { method: 'POST', dispatcher: defaultAgent }
+    ).then(a => a.json());"""
+new_fetch = """    const response = await fetch(
+        sessionServerUrl,
+        { method: 'POST', dispatcher: defaultAgent }
+    );
+    if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error("session server returned HTTP " + response.status + ": " + errorBody);
     }
-    const session = await res.json();"""
+    const newSession = await response.json();"""
 if old_fetch not in cobalt_source:
     raise SystemExit("Expected Cobalt session fetch implementation not found")
 cobalt_path.write_text(cobalt_source.replace(old_fetch, new_fetch, 1))
