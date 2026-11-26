@@ -29,7 +29,7 @@ if [ -n "$PROXY_URL" ]; then
   export HTTPS_PROXY="$PROXY_URL"
   export http_proxy="$PROXY_URL"
   export https_proxy="$PROXY_URL"
-  export NO_PROXY="${NO_PROXY:-localhost,127.0.0.1}"
+  export NO_PROXY="${NO_PROXY:-localhost,127.0.0.1,::1}"
   export no_proxy="$NO_PROXY"
   export YT_SESSION_PROXY="http://127.0.0.1:3128"
 
