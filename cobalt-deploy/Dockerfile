@@ -28,6 +28,7 @@ RUN python3 -m venv /opt/yt-session-venv \
     && python3 -c "from pathlib import Path; p=Path('/app/yt-session-generator/potoken_generator/extractor.py'); s=p.read_text(); old=\"browser = await nodriver.start(headless=False,\"; new=\"browser = await nodriver.start(headless=False, sandbox=False,\"; assert old in s; p.write_text(s.replace(old,new))"
 COPY patch_yt_session.py /tmp/patch_yt_session.py
 RUN python3 /tmp/patch_yt_session.py
+COPY yt-client-smoke.mjs /app/yt-client-smoke.mjs
 COPY --chown=node:node entrypoint.sh /app/entrypoint.sh
 RUN chmod 755 /app/entrypoint.sh
 EXPOSE 9000
