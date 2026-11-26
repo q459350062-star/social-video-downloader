@@ -136,8 +136,8 @@ def ydl_options(cookiefile=None):
         # The provider script runs locally through Deno; no public token endpoint is exposed.
         "extractor_args": {
             "youtube": {"player_client": ["mweb", "tv", "web_safari"]},
-            "youtube-bgutilscript": {
-                "server_home": "/app/bgutil-ytdlp-pot-provider/server"
+            "youtubepot-bgutilhttp": {
+                "base_url": "http://127.0.0.1:4416"
             },
         },
     }
