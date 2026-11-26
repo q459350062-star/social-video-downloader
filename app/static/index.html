@@ -25,6 +25,11 @@
   <section id="result" class="result hidden">
     <div class="videohead"><img id="thumb" alt=""><div><div id="platform" class="tag"></div><h2 id="title"></h2><small id="duration"></small></div></div>
     <label for="formats">选择下载画质</label><select id="formats"></select>
+    <label for="mediaType">下载内容</label>
+    <select id="mediaType">
+      <option value="video" selected>视频（MP4，最高可用画质）</option>
+      <option value="audio">仅音频（MP3）</option>
+    </select>
     <label for="outputMode">文件处理方式</label>
     <select id="outputMode">
       <option value="source" selected>最高原画（不二次转码，保留平台原始编码/HDR/帧率）</option>
