@@ -3,6 +3,9 @@ from pathlib import Path
 path = Path("/app/yt-session-generator/potoken_generator/extractor.py")
 source = path.read_text()
 
+if "from nodriver import cdp" not in source:
+    source = source.replace("import nodriver\n", "import nodriver\nfrom nodriver import cdp\n", 1)
+
 old = """    @staticmethod
     async def _click_on_player(tab: nodriver.Tab) -> bool:
         try:
@@ -57,8 +60,10 @@ if old not in source:
 source = source.replace(old, new, 1)
 source = source.replace(
     "await tab.get('https://www.youtube.com/embed/jNQXAC9IVRw')",
-    """await tab.get('https://www.youtube.com/embed/jNQXAC9IVRw?autoplay=1&mute=1&playsinline=1')
-            state = await tab.evaluate("JSON.stringify({title:document.title,url:location.href,ready:document.readyState,player:!!document.querySelector('#movie_player'),button:!!document.querySelector('.ytp-large-play-button'),video:!!document.querySelector('video')})")
+    """await tab.send(cdp.network.enable())
+            await tab.send(cdp.network.set_extra_http_headers(cdp.network.Headers({"Referer": "https://social-video-downloader-6jqk.onrender.com/"})))
+            await tab.get('https://www.youtube.com/embed/jNQXAC9IVRw?autoplay=1&mute=1&playsinline=1&origin=https%3A%2F%2Fsocial-video-downloader-6jqk.onrender.com')
+            state = await tab.evaluate("JSON.stringify({title:document.title,url:location.href,ready:document.readyState,player:!!document.querySelector('#movie_player'),button:!!document.querySelector('.ytp-large-play-button'),video:!!document.querySelector('video'),body:(document.body?.innerText||'').slice(0,240)})")
             logger.info("YouTube embed state: %s", state)""",
     1,
 )
