@@ -477,8 +477,9 @@ def diagnostics():
     }
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def home():
+    # Render and uptime probes periodically issue HEAD /; accept them without 405 noise.
     return FileResponse(APP_DIR / "static" / "index.html")
 
 
