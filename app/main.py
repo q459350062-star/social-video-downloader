@@ -159,7 +159,6 @@ def ydl_options(cookiefile=None):
             # before the configured bgutil HTTP provider is asked to mint a token.
             "youtube": {
                 "pot_trace": ["true"],
-                "player_client": ["mweb", "tv", "web_safari"],
                 "fetch_pot": ["always"],
             },
             "youtubepot-bgutilhttp": {
