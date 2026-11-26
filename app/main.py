@@ -31,11 +31,12 @@ ALLOWED_HOSTS = {
     "tiktok.com", "www.tiktok.com", "m.tiktok.com", "vm.tiktok.com", "vt.tiktok.com",
     "instagram.com", "www.instagram.com",
     "facebook.com", "www.facebook.com", "m.facebook.com", "fb.watch",
+    "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be",
 }
 MAX_DURATION = int(os.getenv("MAX_DURATION_SECONDS", "3600"))
 MAX_FILE_MB = int(os.getenv("MAX_FILE_MB", "1024"))
 
-app = FastAPI(title="Social Video Downloader", version="1.3.0")
+app = FastAPI(title="Social Video Downloader", version="1.4.0")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 
 
@@ -59,7 +60,7 @@ def validate_url(raw: str) -> str:
     parsed = urlparse(raw)
     host = (parsed.hostname or "").lower()
     if parsed.scheme not in ("http", "https") or host not in ALLOWED_HOSTS:
-        raise HTTPException(400, "目前只支持 TikTok、Instagram 和 Facebook 的公开链接。")
+        raise HTTPException(400, "目前只支持 TikTok、Instagram、Facebook 和 YouTube 的公开链接。")
     if parsed.username or parsed.password:
         raise HTTPException(400, "链接格式无效。")
     return raw
@@ -115,6 +116,8 @@ def platform_name(url: str) -> str:
         return "TikTok"
     if "instagram" in host:
         return "Instagram"
+    if host in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}:
+        return "YouTube"
     return "Facebook"
 
 
