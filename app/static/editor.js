@@ -56,6 +56,10 @@
    if(sourceVideo.size>300*1024*1024){event.preventDefault();alert("视频文件超过 300 MB，服务器会返回 413。请先压缩或缩短素材后再上传。");return;}
    if(narrationFile&&narrationFile.size>100*1024*1024){event.preventDefault();alert("配音文件最大支持 100 MB。");return;}
    if(subtitleFile&&subtitleFile.size>5*1024*1024){event.preventDefault();alert("字幕文件最大支持 5 MB。");return;}
+    const totalUploadBytes=sourceVideo.size+(narrationFile?narrationFile.size:0)+(subtitleFile?subtitleFile.size:0);
+    if(totalUploadBytes>290*1024*1024){event.preventDefault();alert("视频、配音和字幕合计不能超过 290 MB，以避免上传请求返回 413。");return;}
+    if(Number.isFinite(previewDuration)&&previewDuration>600){event.preventDefault();alert("视频时长超过 10 分钟，请先缩短素材。");return;}
+    if(Number.isFinite(previewDuration)&&document.getElementById("upscale_to").value==="2160"&&previewDuration>180){event.preventDefault();alert("免费实例的 4K 放大最长支持 3 分钟，请缩短素材或选择 1440p 以下。");return;}
    if(!rights.checked){
      event.preventDefault();
      alert("目前没有原作者授权。请先使用上方评论稿工作区；只有在素材由你创作、已获明确授权或确有其他合法使用依据时，才能确认并导出。");
