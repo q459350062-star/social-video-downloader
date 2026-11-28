@@ -732,7 +732,18 @@ def download(req: DownloadRequest):
 
         video_codec = (video_stream.get("codec_name") or "").lower()
         transfer = (video_stream.get("color_transfer") or "").lower()
-        is_hdr = transfer in ("smpte2084", "arib-std-b67")
+        # Instagram's extractor may expose HDR on the selected format even when
+        # ffprobe omits color_transfer on the merged stream. Check both sources.
+        extractor_ranges = [
+            str(item.get("dynamic_range") or "").upper()
+            for item in ([info] + (info.get("requested_formats") or []))
+        ]
+        extractor_hdr = any(
+            value not in ("", "SDR", "UNKNOWN", "N/A") and
+            any(token in value for token in ("HDR", "HLG", "PQ", "DOLBY"))
+            for value in extractor_ranges
+        )
+        is_hdr = transfer in ("smpte2084", "arib-std-b67") or extractor_hdr
         actual_width = int(video_stream.get("width") or 0)
         actual_height = int(video_stream.get("height") or 0)
 
@@ -1248,6 +1259,3 @@ def editor_export(
         logger.exception("editor job %s: unexpected failure", job_dir.name if job_dir else "unallocated")
         if job_dir is not None:
             cleanup_job_dir(job_dir)
-        raise HTTPException(422, "剪辑处理失败，详细原因已记录。")
-    finally:
-        DOWNLOAD_LOCK.release()
