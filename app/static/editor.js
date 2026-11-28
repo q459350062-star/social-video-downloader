@@ -53,6 +53,7 @@
    const narrationFile=document.getElementById("narration").files[0];
    const subtitleFile=document.getElementById("subtitles").files[0];
    if(!sourceVideo){event.preventDefault();alert("请先选择视频文件。");return;}
+   if(!["off","low","medium"].includes(document.getElementById("denoise").value)||!["off","low","medium"].includes(document.getElementById("sharpen").value)){event.preventDefault();alert("画质增强参数无效。");return;}
    if(sourceVideo.size>300*1024*1024){event.preventDefault();alert("视频文件超过 300 MB，服务器会返回 413。请先压缩或缩短素材后再上传。");return;}
    if(narrationFile&&narrationFile.size>100*1024*1024){event.preventDefault();alert("配音文件最大支持 100 MB。");return;}
    if(subtitleFile&&subtitleFile.size>5*1024*1024){event.preventDefault();alert("字幕文件最大支持 5 MB。");return;}
