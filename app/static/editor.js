@@ -39,6 +39,8 @@
  const metadataButton=document.getElementById("metadata_button");
  const rights=document.getElementById("rights_confirm");
  const exportButton=document.getElementById("export_button");
+ let previewDuration=NaN;
+ preview.addEventListener("loadedmetadata",()=>{previewDuration=Number.isFinite(preview.duration)?preview.duration:NaN;});
  let objectUrl="";
  file.addEventListener("change",()=>{
    if(objectUrl) URL.revokeObjectURL(objectUrl);
