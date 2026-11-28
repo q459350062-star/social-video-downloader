@@ -784,9 +784,19 @@ def download(req: DownloadRequest):
             )
             fixed_path = job_dir / f"{path.stem}-ios.mp4"
             if is_hdr:
+                # Preserve HDR signaling when a non-HEVC HDR source needs an iPhone
+                # compatibility encode. Without these explicit tags, x265 can emit
+                # a 10-bit file that is nevertheless flagged as SDR by Photos/players.
                 video_encoder = "libx265"
                 pixel_format = "yuv420p10le"
-                extra_video_args = ["-tag:v", "hvc1", "-x265-params", "pools=1:frame-threads=1"]
+                extra_video_args = [
+                    "-tag:v", "hvc1",
+                    "-x265-params", "pools=1:frame-threads=1",
+                    "-color_primaries", video_stream.get("color_primaries") or "bt2020",
+                    "-color_trc", video_stream.get("color_transfer") or "smpte2084",
+                    "-colorspace", video_stream.get("color_space") or "bt2020nc",
+                    "-color_range", video_stream.get("color_range") or "tv",
+                ]
             else:
                 video_encoder = "libx264"
                 pixel_format = "yuv420p"
@@ -795,6 +805,7 @@ def download(req: DownloadRequest):
                 "ffmpeg", "-y", "-threads", "1", "-filter_threads", "1",
                 "-i", str(path),
                 "-map", "0:v:0", "-map", "0:a?",
+                "-map_metadata", "0", "-map_chapters", "0",
                 "-c:v", video_encoder, "-preset", "ultrafast",
                 "-crf", "18", "-pix_fmt", pixel_format, "-threads:v", "1",
                 *extra_video_args,
@@ -809,6 +820,32 @@ def download(req: DownloadRequest):
                 raise HTTPException(422, "视频兼容转换失败。请稍后重试；原始视频编码暂不适合 iPhone 照片播放。")
             if not fixed_path.exists() or fixed_path.stat().st_size == 0:
                 raise HTTPException(422, "视频兼容转换没有生成有效文件。")
+            if is_hdr:
+                hdr_probe = subprocess.run(
+                    ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                     "-show_entries", "stream=color_transfer,pix_fmt,color_primaries,color_space",
+                     "-of", "json", str(fixed_path)],
+                    capture_output=True, text=True, timeout=30, check=True,
+                )
+                hdr_streams = json.loads(hdr_probe.stdout).get("streams", [])
+                hdr_output = hdr_streams[0] if hdr_streams else {}
+                output_transfer = (hdr_output.get("color_transfer") or "").lower()
+                output_pix_fmt = (hdr_output.get("pix_fmt") or "").lower()
+                if output_transfer not in ("smpte2084", "arib-std-b67") or not any(
+                    depth in output_pix_fmt for depth in ("10", "12")
+                ):
+                    logger.error(
+                        "download job %s: HDR preservation validation failed transfer=%s pix_fmt=%s",
+                        job_dir.name, output_transfer, output_pix_fmt,
+                    )
+                    raise HTTPException(
+                        422,
+                        "检测到原片为 HDR，但兼容转换未能保留 HDR 色彩信息；已阻止输出错误标记为 SDR 的文件。请改用原始画质下载。",
+                    )
+                logger.info(
+                    "download job %s: HDR preserved transfer=%s pix_fmt=%s",
+                    job_dir.name, output_transfer, output_pix_fmt,
+                )
             path = fixed_path
             logger.info("download job %s: compatibility transcode completed size=%s", job_dir.name, path.stat().st_size)
 
