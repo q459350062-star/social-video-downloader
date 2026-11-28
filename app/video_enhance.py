@@ -32,9 +32,9 @@ def build_detail_filters(*, sharpen: str = "low", denoise: str = "low") -> list[
 def build_video_rate_args(*, upscale_to: str, staged: bool = False) -> list[str]:
     """Cap peak bitrate for mobile-friendly exports without forcing 4K on smaller jobs.
 
-    A 4K final pass targets 40 Mbps and caps at 50 Mbps. The first 720p stage
+    A 4K final pass uses CRF quality with a 50 Mbps peak cap. The first 720p stage
     of a staged 4K job remains modest to avoid wasting CPU and temporary storage.
     """
     if upscale_to == "2160" and not staged:
-        return ["-b:v", "40M", "-maxrate", "50M", "-bufsize", "80M"]
-    return ["-b:v", "18M", "-maxrate", "25M", "-bufsize", "36M"]
+        return ["-maxrate", "50M", "-bufsize", "80M"]
+    return ["-maxrate", "25M", "-bufsize", "36M"]
