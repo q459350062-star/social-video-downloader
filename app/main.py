@@ -1007,6 +1007,8 @@ def editor_export(
             raise HTTPException(400, "超分辨率档位无效。")
         if target_fps not in {"original", "30", "60"}:
             raise HTTPException(400, "目标帧率无效。")
+        if sharpen not in {"off", "low", "medium"} or denoise not in {"off", "low", "medium"}:
+            raise HTTPException(400, "降噪或锐化档位无效。")
         source_fps_text = video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate") or "0/1"
         try:
             source_fps_num, source_fps_den = source_fps_text.split("/", 1)
