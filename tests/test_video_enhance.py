@@ -17,11 +17,11 @@ class DetailFilterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_detail_filters(sharpen="maximum")
 
-    def test_4k_final_pass_targets_40mbps_and_caps_50mbps(self):
-        self.assertEqual(build_video_rate_args(upscale_to="2160"), ["-b:v", "40M", "-maxrate", "50M", "-bufsize", "80M"])
+    def test_4k_final_pass_uses_crf_and_caps_peak_at_50mbps(self):
+        self.assertEqual(build_video_rate_args(upscale_to="2160"), ["-maxrate", "50M", "-bufsize", "80M"])
 
     def test_staged_first_pass_uses_lower_bitrate(self):
-        self.assertEqual(build_video_rate_args(upscale_to="2160", staged=True), ["-b:v", "18M", "-maxrate", "25M", "-bufsize", "36M"])
+        self.assertEqual(build_video_rate_args(upscale_to="2160", staged=True), ["-maxrate", "25M", "-bufsize", "36M"])
 
     def test_rejects_unknown_denoise(self):
         with self.assertRaises(ValueError):
