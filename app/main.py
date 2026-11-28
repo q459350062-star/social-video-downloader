@@ -954,6 +954,8 @@ def editor_export(
     rights_confirm: bool = Form(False),
     upscale_to: str = Form("original"),
     target_fps: str = Form("original"),
+    sharpen: str = Form("low"),
+    denoise: str = Form("low"),
 ):
     """Small, single-clip mobile editor export. Files are temporary and removed after response."""
     if not rights_confirm:
@@ -1080,6 +1082,9 @@ def editor_export(
                 filters.append(
                     f"scale='if(gte(iw,ih),-2,{target_edge})':'if(gte(iw,ih),{target_edge},-2)':flags=lanczos"
                 )
+        # Mild FFmpeg post-processing: avoid aggressive edge halos on fast motorsport footage.
+        from .video_enhance import build_detail_filters
+        filters.extend(build_detail_filters(sharpen=sharpen, denoise=denoise))
         if filters:
             command_filter = ",".join(filters)
         else:
