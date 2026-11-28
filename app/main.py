@@ -713,7 +713,13 @@ def download(req: DownloadRequest):
             DOWNLOAD_LOCK.release()
             return response
         try:
-            path = ensure_mp4_container(path, preserve_source=(req.output_mode == "source"))
+            path = ensure_mp4_container(
+                path,
+                # Instagram HDR must be detected before any compatibility transcode.
+                # Preserve its original VP9/HEVC stream here; the later HDR-aware
+                # branch can then remux or encode to 10-bit HEVC without losing HDR.
+                preserve_source=(req.output_mode == "source" or is_instagram),
+            )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         if path.stat().st_size > MAX_FILE_MB * 1024 * 1024:
@@ -1259,3 +1265,7 @@ def editor_export(
         logger.exception("editor job %s: unexpected failure", job_dir.name if job_dir else "unallocated")
         if job_dir is not None:
             cleanup_job_dir(job_dir)
+    finally:
+        # Always release the single-worker media queue, including successful
+        # FileResponse creation and every validation/FFmpeg exception path.
+        DOWNLOAD_LOCK.release()
